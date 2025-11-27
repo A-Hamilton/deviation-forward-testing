@@ -17,13 +17,14 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 import requests
+
+__all__ = ["Config", "main"]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -49,6 +50,17 @@ class Config:
     profit_target_pct: float = 0.2  # Exit at 0.2% profit
     max_hold_minutes: int = 120  # Force exit after 2 hours
 
+    # Memory management
+    max_signals_cache: int = 1000  # Max signals to keep in memory
+    signals_cleanup_keep: int = 500  # Signals to keep after cleanup
+
+    # Status display
+    status_interval: int = 5  # Print status every N iterations
+
+    # API retry settings
+    api_retries: int = 3
+    api_retry_delay: float = 1.0  # Base delay in seconds
+
     # Data paths
     data_dir: Path = field(default_factory=lambda: Path("forward_test_data"))
 
@@ -65,18 +77,32 @@ class Config:
         return self.data_dir / "forward_test.log"
 
 
-# Symbols to monitor (top liquid Bybit perpetuals)
-SYMBOLS: list[str] = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
-    "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "MATICUSDT",
-    "SUIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "NEARUSDT",
-    "ATOMUSDT", "LTCUSDT", "BNBUSDT", "INJUSDT", "TAOUSDT",
-    "PEPEUSDT", "WIFUSDT", "FETUSDT", "RENDERUSDT", "ONDOUSDT",
-    "JUPUSDT", "ENAUSDT", "STXUSDT", "IMXUSDT", "SEIUSDT",
-]
+def load_symbols() -> list[str]:
+    """
+    Load symbols to monitor.
+    
+    Returns list of top liquid Bybit perpetuals.
+    Can be extended to load from config file or environment.
+    """
+    # Check for environment variable override
+    env_symbols = os.environ.get("TRADING_SYMBOLS")
+    if env_symbols:
+        return [s.strip().upper() for s in env_symbols.split(",")]
+    
+    # Default symbols
+    return [
+        "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
+        "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "MATICUSDT",
+        "SUIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "NEARUSDT",
+        "ATOMUSDT", "LTCUSDT", "BNBUSDT", "INJUSDT", "TAOUSDT",
+        "PEPEUSDT", "WIFUSDT", "FETUSDT", "RENDERUSDT", "ONDOUSDT",
+        "JUPUSDT", "ENAUSDT", "STXUSDT", "IMXUSDT", "SEIUSDT",
+    ]
+
 
 # Global config instance
 config = Config()
+SYMBOLS = load_symbols()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -136,12 +162,12 @@ class TradingState:
         self.positions: dict[str, Position] = {}
         self.trades: list[Trade] = []
         self.signals_seen: dict[str, str] = {}
-        self.start_time: datetime = datetime.now()
+        self.start_time: datetime = datetime.now(timezone.utc)
         self.total_signals: int = 0
         self.api_errors: int = 0
 
     def save(self) -> None:
-        """Save state to disk."""
+        """Save state to disk with atomic write."""
         try:
             positions_data = {}
             for sym, pos in self.positions.items():
@@ -160,8 +186,12 @@ class TradingState:
                 "api_errors": self.api_errors,
             }
 
-            with open(config.state_file, "w") as f:
+            # Atomic write: write to temp file, then rename
+            temp_file = config.state_file.with_suffix(".tmp")
+            with open(temp_file, "w") as f:
                 json.dump(state, f, indent=2)
+            temp_file.replace(config.state_file)
+            
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
 
@@ -175,16 +205,25 @@ class TradingState:
                 state = json.load(f)
 
             for sym, data in state.get("positions", {}).items():
+                entry_time = datetime.fromisoformat(data["entry_time"])
+                # Ensure timezone awareness
+                if entry_time.tzinfo is None:
+                    entry_time = entry_time.replace(tzinfo=timezone.utc)
+                    
                 self.positions[sym] = Position(
                     symbol=data["symbol"],
                     direction=data["direction"],
                     entry_price=data["entry_price"],
-                    entry_time=datetime.fromisoformat(data["entry_time"]),
+                    entry_time=entry_time,
                     bar_time=data["bar_time"],
                 )
 
             if state.get("start_time"):
-                self.start_time = datetime.fromisoformat(state["start_time"])
+                start = datetime.fromisoformat(state["start_time"])
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=timezone.utc)
+                self.start_time = start
+                
             self.total_signals = state.get("total_signals", 0)
             self.api_errors = state.get("api_errors", 0)
 
@@ -209,7 +248,7 @@ class TradingState:
             logger.error(f"Failed to load trades: {e}")
 
     def save_trade(self, trade: Trade) -> None:
-        """Append trade to trades file."""
+        """Append trade to trades file with atomic write."""
         try:
             trades_data = []
             if config.trades_file.exists():
@@ -218,17 +257,20 @@ class TradingState:
 
             trades_data.append(asdict(trade))
 
-            with open(config.trades_file, "w") as f:
+            # Atomic write: write to temp file, then rename
+            temp_file = config.trades_file.with_suffix(".tmp")
+            with open(temp_file, "w") as f:
                 json.dump(trades_data, f, indent=2)
+            temp_file.replace(config.trades_file)
+            
         except Exception as e:
             logger.error(f"Failed to save trade: {e}")
 
     def cleanup_signals(self) -> None:
         """Remove old signals to prevent memory leak."""
-        if len(self.signals_seen) > 1000:
-            # Keep only the 500 most recent
+        if len(self.signals_seen) > config.max_signals_cache:
             items = list(self.signals_seen.items())
-            self.signals_seen = dict(items[-500:])
+            self.signals_seen = dict(items[-config.signals_cleanup_keep:])
 
 
 # Global state
@@ -243,6 +285,11 @@ state = TradingState()
 def setup_logging() -> logging.Logger:
     """Configure logging with console and file handlers."""
     log = logging.getLogger("deviation_magnet")
+    
+    # Prevent duplicate handlers on re-initialization
+    if log.handlers:
+        return log
+    
     log.setLevel(logging.INFO)
 
     formatter = logging.Formatter(
@@ -255,11 +302,11 @@ def setup_logging() -> logging.Logger:
     console.setFormatter(formatter)
     log.addHandler(console)
 
-    # File handler (if data dir exists)
-    if config.data_dir.exists():
-        file_handler = logging.FileHandler(config.log_file)
-        file_handler.setFormatter(formatter)
-        log.addHandler(file_handler)
+    # File handler - ensure directory exists first
+    config.data_dir.mkdir(exist_ok=True)
+    file_handler = logging.FileHandler(config.log_file)
+    file_handler.setFormatter(formatter)
+    log.addHandler(file_handler)
 
     return log
 
@@ -274,7 +321,7 @@ logger = setup_logging()
 
 def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
     """
-    Fetch recent klines from Bybit.
+    Fetch recent klines from Bybit with retry logic.
 
     Args:
         symbol: Trading pair (e.g., "BTCUSDT")
@@ -291,32 +338,38 @@ def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
         "limit": limit,
     }
 
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+    last_error = None
+    for attempt in range(config.api_retries):
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
 
-        if data["retCode"] != 0 or not data["result"]["list"]:
-            return None
+            if data["retCode"] != 0 or not data["result"]["list"]:
+                return None
 
-        df = pd.DataFrame(
-            data["result"]["list"],
-            columns=["open_time", "open", "high", "low", "close", "volume", "turnover"],
-        )
-        df = df.iloc[::-1].reset_index(drop=True)
-        df["open_time"] = pd.to_datetime(df["open_time"].astype(int), unit="ms")
+            df = pd.DataFrame(
+                data["result"]["list"],
+                columns=["open_time", "open", "high", "low", "close", "volume", "turnover"],
+            )
+            df = df.iloc[::-1].reset_index(drop=True)
+            df["open_time"] = pd.to_datetime(df["open_time"].astype(int), unit="ms")
 
-        for col in ["open", "high", "low", "close"]:
-            df[col] = df[col].astype(float)
+            for col in ["open", "high", "low", "close"]:
+                df[col] = df[col].astype(float)
 
-        return df
+            return df
 
-    except requests.exceptions.RequestException:
-        state.api_errors += 1
-        return None
-    except Exception:
-        state.api_errors += 1
-        return None
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            if attempt < config.api_retries - 1:
+                time.sleep(config.api_retry_delay * (2 ** attempt))
+        except Exception as e:
+            last_error = e
+            break
+
+    state.api_errors += 1
+    return None
 
 
 def get_current_price(symbol: str) -> Optional[float]:
@@ -440,7 +493,13 @@ def check_exit_signal(symbol: str, current_price: float) -> tuple[bool, str]:
         return True, "profit_target"
 
     # Check max hold time
-    hold_minutes = (datetime.now() - pos.entry_time).total_seconds() / 60
+    now = datetime.now(timezone.utc)
+    # Handle timezone-naive entry_time
+    entry = pos.entry_time
+    if entry.tzinfo is None:
+        entry = entry.replace(tzinfo=timezone.utc)
+    
+    hold_minutes = (now - entry).total_seconds() / 60
     if hold_minutes >= config.max_hold_minutes:
         return True, "max_hold"
 
@@ -453,7 +512,7 @@ def enter_position(symbol: str, direction: str, price: float, bar_time: datetime
         symbol=symbol,
         direction=direction,
         entry_price=price,
-        entry_time=datetime.now(),
+        entry_time=datetime.now(timezone.utc),
         bar_time=str(bar_time),
     )
     logger.info(f"📥 ENTRY: {symbol} {direction.upper()} @ ${price:.4f}")
@@ -466,6 +525,7 @@ def exit_position(symbol: str, exit_price: float, reason: str) -> None:
         return
 
     pos = state.positions[symbol]
+    now = datetime.now(timezone.utc)
 
     # Calculate PnL
     if pos.direction == "long":
@@ -475,17 +535,22 @@ def exit_position(symbol: str, exit_price: float, reason: str) -> None:
 
     pnl_usd = (pnl_pct / 100 * config.position_size) - (config.position_size * config.fee_pct)
 
+    # Handle timezone-naive entry_time
+    entry_time = pos.entry_time
+    if entry_time.tzinfo is None:
+        entry_time = entry_time.replace(tzinfo=timezone.utc)
+
     # Create trade record
     trade = Trade(
         symbol=symbol,
         direction=pos.direction,
         entry_price=pos.entry_price,
         exit_price=exit_price,
-        entry_time=pos.entry_time.strftime("%Y-%m-%d %H:%M:%S"),
-        exit_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        entry_time=entry_time.strftime("%Y-%m-%d %H:%M:%S"),
+        exit_time=now.strftime("%Y-%m-%d %H:%M:%S"),
         pnl_pct=round(pnl_pct, 4),
         pnl_usd=round(pnl_usd, 4),
-        hold_seconds=int((datetime.now() - pos.entry_time).total_seconds()),
+        hold_seconds=int((now - entry_time).total_seconds()),
         exit_reason=reason,
     )
 
@@ -510,7 +575,11 @@ def exit_position(symbol: str, exit_price: float, reason: str) -> None:
 
 def print_status() -> None:
     """Print current trading status."""
-    runtime = datetime.now() - state.start_time
+    now = datetime.now(timezone.utc)
+    start = state.start_time
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    runtime = now - start
 
     print(f"\n{'─' * 70}")
     print(f"  ⏱  Runtime: {str(runtime).split('.')[0]} | Signals: {state.total_signals} | Errors: {state.api_errors}")
@@ -526,7 +595,11 @@ def print_status() -> None:
             else:
                 pnl = (pos.entry_price - price) / pos.entry_price * 100
 
-            hold_mins = (datetime.now() - pos.entry_time).total_seconds() / 60
+            entry = pos.entry_time
+            if entry.tzinfo is None:
+                entry = entry.replace(tzinfo=timezone.utc)
+            hold_mins = (now - entry).total_seconds() / 60
+            
             color = "\033[92m" if pnl > 0 else "\033[91m"
             print(
                 f"      {sym:<12} {pos.direction.upper():<5} "
@@ -571,7 +644,7 @@ def print_header() -> None:
     print(f"  Max Hold:       {config.max_hold_minutes} minutes")
     print(f"  Bands:          SMA({config.bb_length}) ± {config.mult}σ × {config.dev_mult}")
     print(f"{'═' * 70}")
-    print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Started: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
     if state.positions:
         print(f"  Restored: {len(state.positions)} open positions")
     if state.trades:
@@ -588,13 +661,6 @@ def print_header() -> None:
 
 def main() -> None:
     """Main trading loop."""
-    # Initialize
-    config.data_dir.mkdir(exist_ok=True)
-
-    # Re-setup logging with file handler now that dir exists
-    global logger
-    logger = setup_logging()
-
     # Load previous state
     state.load()
     state.load_trades()
@@ -602,7 +668,7 @@ def main() -> None:
     print_header()
 
     iteration = 0
-    last_daily = datetime.now().date()
+    last_daily = datetime.now(timezone.utc).date()
 
     try:
         while True:
@@ -633,21 +699,23 @@ def main() -> None:
                 except Exception as e:
                     logger.error(f"Error processing {symbol}: {e}")
 
-            # Status update every 5 iterations (~2.5 min)
-            if iteration % 5 == 0:
+            # Status update every N iterations
+            if iteration % config.status_interval == 0:
                 print_status()
                 state.cleanup_signals()
 
             # Daily summary
-            if datetime.now().date() != last_daily:
-                last_daily = datetime.now().date()
-                today_trades = [
+            today = datetime.now(timezone.utc).date()
+            if today != last_daily:
+                last_daily = today
+                yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+                yesterday_trades = [
                     t for t in state.trades
-                    if t.exit_time.startswith(str(last_daily))
+                    if t.exit_time.startswith(str(yesterday))
                 ]
-                if today_trades:
-                    total = sum(t.pnl_usd for t in today_trades)
-                    logger.info(f"📊 Daily: {len(today_trades)} trades | PnL: ${total:.2f}")
+                if yesterday_trades:
+                    total = sum(t.pnl_usd for t in yesterday_trades)
+                    logger.info(f"📊 Yesterday: {len(yesterday_trades)} trades | PnL: ${total:.2f}")
 
             time.sleep(config.check_interval)
 
