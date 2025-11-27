@@ -47,7 +47,7 @@ class Config:
     check_interval: int = 30  # seconds between checks
     
     # Parallel processing
-    max_workers: int = 10  # Concurrent API requests
+    max_workers: int = 5  # Concurrent API requests (conservative for rate limits)
 
     # Position management
     position_size: float = field(default_factory=lambda: float(os.environ.get("POSITION_SIZE", "100.0")))
@@ -359,7 +359,12 @@ def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
             resp.raise_for_status()
             data = resp.json()
 
-            if data["retCode"] != 0 or not data["result"]["list"]:
+            if data["retCode"] != 0:
+                logger.warning(f"API error for {symbol}: retCode={data['retCode']}, msg={data.get('retMsg', 'unknown')}")
+                return None
+            
+            if not data["result"]["list"]:
+                logger.warning(f"Empty data for {symbol}")
                 return None
 
             df = pd.DataFrame(
