@@ -666,6 +666,9 @@ def main() -> None:
     state.load_trades()
 
     print_header()
+    
+    logger.info("🔄 Starting main loop...")
+    print("🔄 Starting main loop...", flush=True)
 
     iteration = 0
     last_daily = datetime.now(timezone.utc).date()
@@ -673,6 +676,10 @@ def main() -> None:
     try:
         while True:
             iteration += 1
+            
+            if iteration == 1:
+                logger.info(f"First iteration starting, scanning {len(SYMBOLS)} symbols...")
+                print(f"First iteration starting, scanning {len(SYMBOLS)} symbols...", flush=True)
 
             # Process each symbol
             for symbol in SYMBOLS:
@@ -718,14 +725,30 @@ def main() -> None:
                     total = sum(t.pnl_usd for t in yesterday_trades)
                     logger.info(f"📊 Yesterday: {len(yesterday_trades)} trades | PnL: ${total:.2f}")
 
+            # Log completion of iteration
+            if iteration <= 3 or iteration % 10 == 0:
+                logger.info(f"Completed iteration {iteration}")
+                
             time.sleep(config.check_interval)
 
     except KeyboardInterrupt:
         logger.info("Stopping... saving state")
         state.save()
         print_status()
-        print("\n✅ State saved. Run again to resume.\n")
+        print("\n✅ State saved. Run again to resume.\n", flush=True)
+    except Exception as e:
+        logger.error(f"💥 FATAL ERROR: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        state.save()
+        raise
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"💥 Script crashed: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
