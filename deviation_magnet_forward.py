@@ -363,8 +363,8 @@ def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
                 logger.warning(f"API error for {symbol}: retCode={data['retCode']}, msg={data.get('retMsg', 'unknown')}")
                 return None
             
-            if not data["result"]["list"]:
-                logger.warning(f"Empty data for {symbol}")
+            if not data.get("result", {}).get("list"):
+                logger.warning(f"Empty data for {symbol}: {data}")
                 return None
 
             df = pd.DataFrame(
@@ -383,9 +383,9 @@ def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
             if attempt < config.api_retries - 1:
                 time.sleep(config.api_retry_delay * (2 ** attempt))
             else:
-                logger.debug(f"API error for {symbol}: {e}")
+                logger.warning(f"Request failed for {symbol} after {config.api_retries} attempts: {e}")
         except Exception as e:
-            logger.debug(f"Unexpected error fetching {symbol}: {e}")
+            logger.warning(f"Unexpected error fetching {symbol}: {e}")
             break
 
     state.api_errors += 1
