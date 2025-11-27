@@ -1,1 +1,1 @@
-worker: python deviation_magnet_forward.py
+worker: python -u deviation_magnet_forward.py

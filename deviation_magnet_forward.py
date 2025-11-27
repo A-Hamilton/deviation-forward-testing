@@ -628,7 +628,7 @@ def print_status() -> None:
             emoji = "✅" if t.pnl_usd > 0 else "❌"
             print(f"        {emoji} {t.symbol:<10} {t.direction:<5} ${t.pnl_usd:>+7.2f} ({t.exit_reason})")
 
-    print(f"{'─' * 70}\n")
+    print(f"{'─' * 70}\n", flush=True)
 
 
 def print_header() -> None:
@@ -651,7 +651,7 @@ def print_header() -> None:
         print(f"  Historical: {len(state.trades)} trades")
     print(f"{'═' * 70}")
     print(f"  Press Ctrl+C to stop (state will be saved)")
-    print(f"{'═' * 70}\n")
+    print(f"{'═' * 70}\n", flush=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -703,6 +703,7 @@ def main() -> None:
             if iteration % config.status_interval == 0:
                 print_status()
                 state.cleanup_signals()
+                logger.info(f"Heartbeat: iteration {iteration} | positions: {len(state.positions)} | trades: {len(state.trades)}")
 
             # Daily summary
             today = datetime.now(timezone.utc).date()
