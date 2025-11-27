@@ -282,6 +282,13 @@ state = TradingState()
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+class FlushStreamHandler(logging.StreamHandler):
+    """StreamHandler that flushes after every emit."""
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
+
 def setup_logging() -> logging.Logger:
     """Configure logging with console and file handlers."""
     log = logging.getLogger("deviation_magnet")
@@ -297,16 +304,19 @@ def setup_logging() -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Console handler
-    console = logging.StreamHandler(sys.stdout)
+    # Console handler with auto-flush
+    console = FlushStreamHandler(sys.stdout)
     console.setFormatter(formatter)
     log.addHandler(console)
 
     # File handler - ensure directory exists first
-    config.data_dir.mkdir(exist_ok=True)
-    file_handler = logging.FileHandler(config.log_file)
-    file_handler.setFormatter(formatter)
-    log.addHandler(file_handler)
+    try:
+        config.data_dir.mkdir(exist_ok=True)
+        file_handler = logging.FileHandler(config.log_file)
+        file_handler.setFormatter(formatter)
+        log.addHandler(file_handler)
+    except Exception as e:
+        print(f"Warning: Could not create file handler: {e}", flush=True)
 
     return log
 
@@ -682,12 +692,21 @@ def main() -> None:
                 print(f"First iteration starting, scanning {len(SYMBOLS)} symbols...", flush=True)
 
             # Process each symbol
+            symbols_processed = 0
             for symbol in SYMBOLS:
                 try:
+                    if iteration == 1 and symbols_processed == 0:
+                        logger.info(f"Fetching data for {symbol}...")
+                    
                     df = fetch_klines(symbol)
+                    
+                    if iteration == 1 and symbols_processed == 0:
+                        logger.info(f"Got {len(df) if df is not None else 0} candles for {symbol}")
+                    
                     data = calculate_bands(df)
 
                     if data is None:
+                        symbols_processed += 1
                         continue
 
                     current_price = data.close
@@ -702,9 +721,16 @@ def main() -> None:
                     signal = check_entry_signal(symbol, data)
                     if signal:
                         enter_position(symbol, signal, current_price, data.bar_time)
+                    
+                    symbols_processed += 1
 
                 except Exception as e:
                     logger.error(f"Error processing {symbol}: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            
+            if iteration == 1:
+                logger.info(f"First iteration complete: processed {symbols_processed}/{len(SYMBOLS)} symbols")
 
             # Status update every N iterations
             if iteration % config.status_interval == 0:
