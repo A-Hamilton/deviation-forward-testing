@@ -16,6 +16,8 @@ import logging
 import os
 import sys
 import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -41,14 +43,17 @@ class Config:
     dev_mult: float = 1.5
 
     # Timing
-    timeframe: str = "5"  # 5-minute candles
+    timeframe: str = field(default_factory=lambda: os.environ.get("TIMEFRAME", "5"))
     check_interval: int = 30  # seconds between checks
+    
+    # Parallel processing
+    max_workers: int = 10  # Concurrent API requests
 
     # Position management
-    position_size: float = 100.0  # USD per trade
+    position_size: float = field(default_factory=lambda: float(os.environ.get("POSITION_SIZE", "100.0")))
     fee_pct: float = 0.0011  # 0.11% round trip
-    profit_target_pct: float = 0.2  # Exit at 0.2% profit
-    max_hold_minutes: int = 120  # Force exit after 2 hours
+    profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.2")))
+    max_hold_minutes: int = field(default_factory=lambda: int(os.environ.get("MAX_HOLD_MINUTES", "120")))
 
     # Memory management
     max_signals_cache: int = 1000  # Max signals to keep in memory
@@ -348,7 +353,6 @@ def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
         "limit": limit,
     }
 
-    last_error = None
     for attempt in range(config.api_retries):
         try:
             resp = requests.get(url, params=params, timeout=10)
@@ -371,11 +375,12 @@ def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
             return df
 
         except requests.exceptions.RequestException as e:
-            last_error = e
             if attempt < config.api_retries - 1:
                 time.sleep(config.api_retry_delay * (2 ** attempt))
+            else:
+                logger.debug(f"API error for {symbol}: {e}")
         except Exception as e:
-            last_error = e
+            logger.debug(f"Unexpected error fetching {symbol}: {e}")
             break
 
     state.api_errors += 1
@@ -610,11 +615,11 @@ def print_status() -> None:
                 entry = entry.replace(tzinfo=timezone.utc)
             hold_mins = (now - entry).total_seconds() / 60
             
-            color = "\033[92m" if pnl > 0 else "\033[91m"
+            pnl_indicator = "▲" if pnl > 0 else "▼"
             print(
                 f"      {sym:<12} {pos.direction.upper():<5} "
                 f"${pos.entry_price:<12.4f} → ${price:<12.4f} "
-                f"{color}{pnl:>+7.2f}%\033[0m  ({hold_mins:.0f}m)"
+                f"{pnl_indicator} {pnl:>+7.2f}%  ({hold_mins:.0f}m)"
             )
 
     # Trade statistics
@@ -628,8 +633,8 @@ def print_status() -> None:
         avg_win = sum(t.pnl_usd for t in winners) / len(winners) if winners else 0
         avg_loss = sum(t.pnl_usd for t in losers) / len(losers) if losers else 0
 
-        color = "\033[92m" if total_pnl > 0 else "\033[91m"
-        print(f"      Total PnL: {color}${total_pnl:.2f}\033[0m | Win Rate: {win_rate:.0f}% ({len(winners)}W / {len(losers)}L)")
+        pnl_indicator = "▲" if total_pnl > 0 else "▼"
+        print(f"      Total PnL: {pnl_indicator} ${total_pnl:.2f} | Win Rate: {win_rate:.0f}% ({len(winners)}W / {len(losers)}L)")
         print(f"      Avg Win: ${avg_win:.2f} | Avg Loss: ${avg_loss:.2f}")
 
         # Last 5 trades
@@ -691,18 +696,30 @@ def main() -> None:
                 logger.info(f"First iteration starting, scanning {len(SYMBOLS)} symbols...")
                 print(f"First iteration starting, scanning {len(SYMBOLS)} symbols...", flush=True)
 
+            # Fetch all klines in parallel
+            if iteration == 1:
+                logger.info(f"Fetching data for {len(SYMBOLS)} symbols in parallel...")
+            
+            klines_data: dict[str, Optional[pd.DataFrame]] = {}
+            with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
+                future_to_symbol = {executor.submit(fetch_klines, sym): sym for sym in SYMBOLS}
+                for future in as_completed(future_to_symbol):
+                    symbol = future_to_symbol[future]
+                    try:
+                        klines_data[symbol] = future.result()
+                    except Exception as e:
+                        logger.error(f"Error fetching {symbol}: {e}")
+                        klines_data[symbol] = None
+            
+            if iteration == 1:
+                valid_count = sum(1 for df in klines_data.values() if df is not None)
+                logger.info(f"Fetched data for {valid_count}/{len(SYMBOLS)} symbols")
+            
             # Process each symbol
             symbols_processed = 0
             for symbol in SYMBOLS:
                 try:
-                    if iteration == 1 and symbols_processed == 0:
-                        logger.info(f"Fetching data for {symbol}...")
-                    
-                    df = fetch_klines(symbol)
-                    
-                    if iteration == 1 and symbols_processed == 0:
-                        logger.info(f"Got {len(df) if df is not None else 0} candles for {symbol}")
-                    
+                    df = klines_data.get(symbol)
                     data = calculate_bands(df)
 
                     if data is None:
@@ -726,7 +743,6 @@ def main() -> None:
 
                 except Exception as e:
                     logger.error(f"Error processing {symbol}: {e}")
-                    import traceback
                     logger.error(traceback.format_exc())
             
             if iteration == 1:
@@ -764,7 +780,6 @@ def main() -> None:
         print("\n✅ State saved. Run again to resume.\n", flush=True)
     except Exception as e:
         logger.error(f"💥 FATAL ERROR: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         state.save()
         raise
@@ -775,6 +790,5 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         print(f"💥 Script crashed: {e}", flush=True)
-        import traceback
         traceback.print_exc()
         raise
