@@ -345,7 +345,8 @@ def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
     Returns:
         DataFrame with OHLCV data or None on error
     """
-    url = "https://api.bybit.com/v5/market/kline"
+    # Try alternative endpoint (api-testnet or api.bytick.com if main is blocked)
+    url = "https://api.bytick.com/v5/market/kline"
     params = {
         "category": "linear",
         "symbol": symbol,
@@ -394,7 +395,7 @@ def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
 
 def get_current_price(symbol: str) -> Optional[float]:
     """Get current last price from Bybit."""
-    url = "https://api.bybit.com/v5/market/tickers"
+    url = "https://api.bytick.com/v5/market/tickers"
     params = {"category": "linear", "symbol": symbol}
 
     try:
