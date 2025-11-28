@@ -571,7 +571,7 @@ class Bot:
     def run(self):
         """Start the bot loop."""
         self.state.load()
-        self.state.load_trades()
+        # self.state.load_trades()  # Commented out to ignore historical trades on startup (Session Stats only)
         self._print_header()
 
         self.logger.info("🔄 Starting main loop...")
@@ -699,13 +699,12 @@ class Bot:
             # scale_mult = self.config.dca_scale ** pos.num_orders
             # size = self.config.base_order_size * scale_mult
 
-            # New Logic: Size = Current Total Exposure
-            # This doubles the total exposure every time (if scale is 2.0)
-            # e.g. Base $10 (Exp $10) -> DCA $10 (Exp $20) -> DCA $20 (Exp $40) -> DCA $40 (Exp $80)
-            size = pos.total_size * (self.config.dca_scale - 1.0) 
-            # Note: For strict "doubling" (Scale 2.0), we add 100% of current size.
-            # If scale was 1.5, we would add 50% of current size (1.5 - 1.0).
-
+            # New Logic: Size = Current Total Exposure * Scale
+            # If scale is 2.0, we add 2x the current total.
+            # Base $10 (Total $10) -> Add $20 -> Total $30
+            # Total $30 -> Add $60 -> Total $90
+            size = pos.total_size * self.config.dca_scale
+            
             # Fallback if somehow total_size is 0 (shouldn't happen)
             if size <= 0:
                 size = self.config.base_order_size
@@ -811,10 +810,8 @@ class Bot:
         print(f"    Base:    ${c.base_order_size:,.0f} (Total Exposure: ${current_exposure:,.0f})")
         
         for i in range(min(5, c.max_dca_orders)):
-            # New size adds enough to reach (current * scale)
-            # If scale is 2.0, we double exposure. 
-            # Size needed = (current * 2.0) - current = current
-            next_size = current_exposure * (c.dca_scale - 1.0)
+            # Step Size = Current Total * Scale
+            next_size = current_exposure * c.dca_scale
             current_exposure += next_size
             
             print(f"    DCA #{i+1}:  ${next_size:,.0f} (Total Exposure: ${current_exposure:,.0f})")
