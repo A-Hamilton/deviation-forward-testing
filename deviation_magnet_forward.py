@@ -55,7 +55,7 @@ class Config:
     
     # DCA settings
     dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "2.0")))
-    max_dca_orders: int = field(default_factory=lambda: int(os.environ.get("MAX_DCA_ORDERS", "999999")))
+    max_dca_orders: int = field(default_factory=lambda: int(os.environ.get("MAX_DCA_ORDERS", "10")))
 
     # Memory management
     max_signals_cache: int = 2000
@@ -75,6 +75,10 @@ class Config:
     @property
     def trades_file(self) -> Path:
         return self.data_dir / "trades.json"
+
+    @property
+    def trades_csv(self) -> Path:
+        return self.data_dir / "trades.csv"
 
     @property
     def state_file(self) -> Path:
@@ -334,9 +338,14 @@ class TradingState:
         if len(self.trades) > self.config.trades_memory_cap:
             self.trades.pop(0)
         
-        self._save_trade_disk(trade)
+        self.save_trade(trade)
 
-    def _save_trade_disk(self, trade: Trade) -> None:
+    def save_trade(self, trade: Trade) -> None:
+        """Append trade to JSON and CSV files."""
+        self._save_trade_json(trade)
+        self._save_trade_csv(trade)
+
+    def _save_trade_json(self, trade: Trade) -> None:
         try:
             trades_data = []
             if self.config.trades_file.exists():
@@ -350,7 +359,21 @@ class TradingState:
                 json.dump(trades_data, f, indent=2)
             temp_file.replace(self.config.trades_file)
         except Exception as e:
-            self.logger.error(f"Failed to save trade: {e}")
+            self.logger.error(f"Failed to save trade JSON: {e}")
+
+    def _save_trade_csv(self, trade: Trade) -> None:
+        try:
+            import csv
+            file_exists = self.config.trades_csv.exists()
+            
+            with open(self.config.trades_csv, "a", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=asdict(trade).keys())
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(asdict(trade))
+                
+        except Exception as e:
+            self.logger.error(f"Failed to save trade CSV: {e}")
 
     def cleanup_signals(self) -> None:
         if len(self.signals_seen) > self.config.max_signals_cache:
@@ -751,8 +774,21 @@ class Bot:
         print(f"{'═' * 70}")
         print(f"  Timeframe:      {c.timeframe}m")
         print(f"  Symbols:        {len(self.symbols)}")
-        print(f"  DCA:            ${c.base_order_size} x {c.dca_scale} (Target: {c.profit_target_pct}%)")
-        print(f"  Log:            {c.log_file}")
+        print(f"  DCA Config:     Base ${c.base_order_size} | Scale {c.dca_scale}x | Max {c.max_dca_orders} Orders")
+        print(f"  Target Profit:  {c.profit_target_pct}%")
+        print(f"  Outputs:        {c.trades_file.name}, {c.trades_csv.name}")
+        
+        # Show DCA Progression
+        print(f"{'─' * 70}")
+        print(f"  DCA Progression Preview:")
+        total = 0.0
+        for i in range(min(5, c.max_dca_orders)):
+            size = c.base_order_size * (c.dca_scale ** i)
+            total += size
+            print(f"    Ord #{i+1}: ${size:,.0f} (Total Exposure: ${total:,.0f})")
+        if c.max_dca_orders > 5:
+            print(f"    ... up to {c.max_dca_orders} orders")
+            
         print(f"{'═' * 70}\n", flush=True)
 
     def _print_status(self):
