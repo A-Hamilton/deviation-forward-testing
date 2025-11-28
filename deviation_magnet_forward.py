@@ -50,10 +50,14 @@ class Config:
     max_workers: int = 5  # Concurrent API requests (conservative for rate limits)
 
     # Position management
-    position_size: float = field(default_factory=lambda: float(os.environ.get("POSITION_SIZE", "100.0")))
+    base_order_size: float = field(default_factory=lambda: float(os.environ.get("BASE_ORDER_SIZE", "10.0")))
     fee_pct: float = 0.0011  # 0.11% round trip
     profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.2")))
     max_hold_minutes: int = field(default_factory=lambda: int(os.environ.get("MAX_HOLD_MINUTES", "120")))
+    
+    # DCA settings
+    dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "2.0")))  # 2x each DCA
+    max_dca_orders: int = field(default_factory=lambda: int(os.environ.get("MAX_DCA_ORDERS", "5")))  # Max orders per position
 
     # Memory management
     max_signals_cache: int = 1000  # Max signals to keep in memory
@@ -116,14 +120,50 @@ SYMBOLS = load_symbols()
 
 
 @dataclass
+class DCAOrder:
+    """Single DCA order within a position."""
+    price: float
+    size: float
+    time: datetime
+    bar_time: str
+
+
+@dataclass
 class Position:
-    """Represents an open trading position."""
+    """Represents an open trading position with DCA orders."""
 
     symbol: str
     direction: str  # "long" or "short"
-    entry_price: float
-    entry_time: datetime
-    bar_time: str
+    orders: list  # List of DCAOrder dicts for JSON serialization
+    entry_time: datetime  # First entry time
+
+    @property
+    def total_size(self) -> float:
+        """Total position size across all DCA orders."""
+        return sum(o["size"] for o in self.orders)
+
+    @property
+    def avg_entry_price(self) -> float:
+        """Volume-weighted average entry price."""
+        if not self.orders:
+            return 0
+        total_cost = sum(o["price"] * o["size"] for o in self.orders)
+        return total_cost / self.total_size
+
+    @property
+    def num_orders(self) -> int:
+        """Number of DCA orders filled."""
+        return len(self.orders)
+    
+    @property
+    def last_bar_time(self) -> str:
+        """Bar time of the most recent order."""
+        return self.orders[-1]["bar_time"] if self.orders else ""
+    
+    @property
+    def last_order_size(self) -> float:
+        """Size of the most recent order."""
+        return self.orders[-1]["size"] if self.orders else 0
 
 
 @dataclass
@@ -132,7 +172,7 @@ class Trade:
 
     symbol: str
     direction: str
-    entry_price: float
+    entry_price: float  # Average entry price
     exit_price: float
     entry_time: str
     exit_time: str
@@ -140,6 +180,8 @@ class Trade:
     pnl_usd: float
     hold_seconds: int
     exit_reason: str
+    position_size: float = 0.0  # Total position size
+    num_dca_orders: int = 1  # Number of DCA fills
 
 
 @dataclass
@@ -179,9 +221,8 @@ class TradingState:
                 positions_data[sym] = {
                     "symbol": pos.symbol,
                     "direction": pos.direction,
-                    "entry_price": pos.entry_price,
+                    "orders": pos.orders,  # List of DCA orders
                     "entry_time": pos.entry_time.isoformat(),
-                    "bar_time": pos.bar_time,
                 }
 
             state = {
@@ -214,13 +255,24 @@ class TradingState:
                 # Ensure timezone awareness
                 if entry_time.tzinfo is None:
                     entry_time = entry_time.replace(tzinfo=timezone.utc)
+                
+                # Handle old format (single entry_price) vs new format (orders list)
+                if "orders" in data:
+                    orders = data["orders"]
+                else:
+                    # Migrate old format to new
+                    orders = [{
+                        "price": data["entry_price"],
+                        "size": config.base_order_size,
+                        "time": data["entry_time"],
+                        "bar_time": data.get("bar_time", ""),
+                    }]
                     
                 self.positions[sym] = Position(
                     symbol=data["symbol"],
                     direction=data["direction"],
-                    entry_price=data["entry_price"],
+                    orders=orders,
                     entry_time=entry_time,
-                    bar_time=data["bar_time"],
                 )
 
             if state.get("start_time"):
@@ -456,34 +508,55 @@ def calculate_bands(df: pd.DataFrame) -> Optional[BandData]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def check_entry_signal(symbol: str, data: BandData) -> Optional[str]:
+def check_entry_signal(symbol: str, data: BandData) -> tuple[Optional[str], bool]:
     """
-    Check for entry signal.
+    Check for entry signal (new position or DCA).
 
     Args:
         symbol: Trading pair
         data: Calculated band data
 
     Returns:
-        "long", "short", or None
+        Tuple of (direction, is_dca) where direction is "long", "short", or None
     """
-    if symbol in state.positions:
-        return None  # Already in position
-
     bar_key = f"{symbol}_{data.bar_time}"
+    
+    # Check if already in position - might be DCA opportunity
+    if symbol in state.positions:
+        pos = state.positions[symbol]
+        
+        # Check if we already DCA'd this bar
+        if pos.last_bar_time == str(data.bar_time):
+            return None, False
+        
+        # Check max DCA orders
+        if pos.num_orders >= config.max_dca_orders:
+            return None, False
+        
+        # Check if price still outside bands in same direction
+        if pos.direction == "long" and data.close <= data.lower3:
+            state.total_signals += 1
+            return "long", True  # DCA long
+        elif pos.direction == "short" and data.close >= data.upper3:
+            state.total_signals += 1
+            return "short", True  # DCA short
+        
+        return None, False
+    
+    # New position entry
     if bar_key in state.signals_seen:
-        return None  # Already signaled this bar
+        return None, False  # Already signaled this bar
 
     if data.close <= data.lower3:
         state.signals_seen[bar_key] = "long"
         state.total_signals += 1
-        return "long"
+        return "long", False
     elif data.close >= data.upper3:
         state.signals_seen[bar_key] = "short"
         state.total_signals += 1
-        return "short"
+        return "short", False
 
-    return None
+    return None, False
 
 
 def check_exit_signal(symbol: str, current_price: float) -> tuple[bool, str]:
@@ -501,18 +574,19 @@ def check_exit_signal(symbol: str, current_price: float) -> tuple[bool, str]:
         return False, ""
 
     pos = state.positions[symbol]
+    avg_entry = pos.avg_entry_price
 
-    # Calculate unrealized PnL
+    # Calculate unrealized PnL based on average entry
     if pos.direction == "long":
-        pnl_pct = (current_price - pos.entry_price) / pos.entry_price * 100
+        pnl_pct = (current_price - avg_entry) / avg_entry * 100
     else:
-        pnl_pct = (pos.entry_price - current_price) / pos.entry_price * 100
+        pnl_pct = (avg_entry - current_price) / avg_entry * 100
 
     # Check profit target
     if pnl_pct >= config.profit_target_pct:
         return True, "profit_target"
 
-    # Check max hold time
+    # Check max hold time (from first entry)
     now = datetime.now(timezone.utc)
     # Handle timezone-naive entry_time
     entry = pos.entry_time
@@ -526,16 +600,46 @@ def check_exit_signal(symbol: str, current_price: float) -> tuple[bool, str]:
     return False, ""
 
 
-def enter_position(symbol: str, direction: str, price: float, bar_time: datetime) -> None:
-    """Open a new position."""
-    state.positions[symbol] = Position(
-        symbol=symbol,
-        direction=direction,
-        entry_price=price,
-        entry_time=datetime.now(timezone.utc),
-        bar_time=str(bar_time),
-    )
-    logger.info(f"📥 ENTRY: {symbol} {direction.upper()} @ ${price:.4f}")
+def enter_position(symbol: str, direction: str, price: float, bar_time: datetime, is_dca: bool = False) -> None:
+    """Open a new position or add DCA order to existing position."""
+    now = datetime.now(timezone.utc)
+    
+    if is_dca and symbol in state.positions:
+        # DCA into existing position
+        pos = state.positions[symbol]
+        
+        # Calculate DCA order size: base_size * scale^(order_number)
+        # E.g., with scale=2: $10, $20, $40, $80...
+        dca_size = config.base_order_size * (config.dca_scale ** pos.num_orders)
+        
+        new_order = {
+            "price": price,
+            "size": dca_size,
+            "time": now.isoformat(),
+            "bar_time": str(bar_time),
+        }
+        pos.orders.append(new_order)
+        
+        logger.info(
+            f"📥 DCA #{pos.num_orders}: {symbol} {direction.upper()} @ ${price:.4f} "
+            f"(+${dca_size:.0f}, total: ${pos.total_size:.0f}, avg: ${pos.avg_entry_price:.4f})"
+        )
+    else:
+        # New position with base order
+        initial_order = {
+            "price": price,
+            "size": config.base_order_size,
+            "time": now.isoformat(),
+            "bar_time": str(bar_time),
+        }
+        state.positions[symbol] = Position(
+            symbol=symbol,
+            direction=direction,
+            orders=[initial_order],
+            entry_time=now,
+        )
+        logger.info(f"📥 ENTRY: {symbol} {direction.upper()} @ ${price:.4f} (${config.base_order_size:.0f})")
+    
     state.save()
 
 
@@ -546,14 +650,20 @@ def exit_position(symbol: str, exit_price: float, reason: str) -> None:
 
     pos = state.positions[symbol]
     now = datetime.now(timezone.utc)
+    
+    # Get position metrics
+    avg_entry = pos.avg_entry_price
+    total_size = pos.total_size
+    num_orders = pos.num_orders
 
-    # Calculate PnL
+    # Calculate PnL based on average entry price
     if pos.direction == "long":
-        pnl_pct = (exit_price - pos.entry_price) / pos.entry_price * 100
+        pnl_pct = (exit_price - avg_entry) / avg_entry * 100
     else:
-        pnl_pct = (pos.entry_price - exit_price) / pos.entry_price * 100
+        pnl_pct = (avg_entry - exit_price) / avg_entry * 100
 
-    pnl_usd = (pnl_pct / 100 * config.position_size) - (config.position_size * config.fee_pct)
+    # PnL in USD based on total position size
+    pnl_usd = (pnl_pct / 100 * total_size) - (total_size * config.fee_pct)
 
     # Handle timezone-naive entry_time
     entry_time = pos.entry_time
@@ -564,7 +674,7 @@ def exit_position(symbol: str, exit_price: float, reason: str) -> None:
     trade = Trade(
         symbol=symbol,
         direction=pos.direction,
-        entry_price=pos.entry_price,
+        entry_price=avg_entry,
         exit_price=exit_price,
         entry_time=entry_time.strftime("%Y-%m-%d %H:%M:%S"),
         exit_time=now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -572,6 +682,8 @@ def exit_position(symbol: str, exit_price: float, reason: str) -> None:
         pnl_usd=round(pnl_usd, 4),
         hold_seconds=int((now - entry_time).total_seconds()),
         exit_reason=reason,
+        position_size=total_size,
+        num_dca_orders=num_orders,
     )
 
     state.trades.append(trade)
@@ -579,9 +691,11 @@ def exit_position(symbol: str, exit_price: float, reason: str) -> None:
 
     # Log result
     emoji = "✅" if pnl_usd > 0 else "❌"
+    dca_info = f" ({num_orders} orders)" if num_orders > 1 else ""
     logger.info(
         f"{emoji} EXIT: {symbol} {pos.direction.upper()} @ ${exit_price:.4f} | "
-        f"PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%) | Reason: {reason}"
+        f"Avg Entry: ${avg_entry:.4f} | Size: ${total_size:.0f}{dca_info} | "
+        f"PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%) | {reason}"
     )
 
     del state.positions[symbol]
@@ -610,10 +724,11 @@ def print_status() -> None:
     for sym, pos in state.positions.items():
         price = get_current_price(sym)
         if price:
+            avg_entry = pos.avg_entry_price
             if pos.direction == "long":
-                pnl = (price - pos.entry_price) / pos.entry_price * 100
+                pnl = (price - avg_entry) / avg_entry * 100
             else:
-                pnl = (pos.entry_price - price) / pos.entry_price * 100
+                pnl = (avg_entry - price) / avg_entry * 100
 
             entry = pos.entry_time
             if entry.tzinfo is None:
@@ -621,10 +736,11 @@ def print_status() -> None:
             hold_mins = (now - entry).total_seconds() / 60
             
             pnl_indicator = "▲" if pnl > 0 else "▼"
+            dca_info = f"[{pos.num_orders}x]" if pos.num_orders > 1 else ""
             print(
-                f"      {sym:<12} {pos.direction.upper():<5} "
-                f"${pos.entry_price:<12.4f} → ${price:<12.4f} "
-                f"{pnl_indicator} {pnl:>+7.2f}%  ({hold_mins:.0f}m)"
+                f"      {sym:<12} {pos.direction.upper():<5} {dca_info:<5} "
+                f"${avg_entry:<10.4f} → ${price:<10.4f} "
+                f"{pnl_indicator} {pnl:>+7.2f}%  (${pos.total_size:.0f}, {hold_mins:.0f}m)"
             )
 
     # Trade statistics
@@ -646,7 +762,9 @@ def print_status() -> None:
         print(f"\n      Recent trades:")
         for t in state.trades[-5:]:
             emoji = "✅" if t.pnl_usd > 0 else "❌"
-            print(f"        {emoji} {t.symbol:<10} {t.direction:<5} ${t.pnl_usd:>+7.2f} ({t.exit_reason})")
+            dca_info = f"[{t.num_dca_orders}x]" if t.num_dca_orders > 1 else ""
+            size_info = f"${t.position_size:.0f}" if t.position_size > 0 else ""
+            print(f"        {emoji} {t.symbol:<10} {t.direction:<5} {dca_info:<5} ${t.pnl_usd:>+7.2f} {size_info} ({t.exit_reason})")
 
     print(f"{'─' * 70}\n", flush=True)
 
@@ -654,15 +772,24 @@ def print_status() -> None:
 def print_header() -> None:
     """Print startup header."""
     print(f"\n{'═' * 70}")
-    print(f"  🚀 DEVIATION MAGNET - 24/7 FORWARD TEST")
+    print(f"  🚀 DEVIATION MAGNET - 24/7 FORWARD TEST (DCA Mode)")
     print(f"{'═' * 70}")
     print(f"  Timeframe:      {config.timeframe}m candles")
     print(f"  Check Interval: {config.check_interval}s")
     print(f"  Symbols:        {len(SYMBOLS)}")
-    print(f"  Position Size:  ${config.position_size}")
+    print(f"  Base Order:     ${config.base_order_size}")
+    print(f"  DCA Scale:      {config.dca_scale}x (max {config.max_dca_orders} orders)")
     print(f"  Profit Target:  {config.profit_target_pct}%")
     print(f"  Max Hold:       {config.max_hold_minutes} minutes")
     print(f"  Bands:          SMA({config.bb_length}) ± {config.mult}σ × {config.dev_mult}")
+    print(f"{'═' * 70}")
+    print(f"  DCA Example: ${config.base_order_size:.0f}", end="")
+    total = config.base_order_size
+    for i in range(1, min(4, config.max_dca_orders)):
+        order = config.base_order_size * (config.dca_scale ** i)
+        total += order
+        print(f" → ${order:.0f}", end="")
+    print(f" ... (max ${total:.0f}+)")
     print(f"{'═' * 70}")
     print(f"  Started: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
     if state.positions:
@@ -739,10 +866,10 @@ def main() -> None:
                         if should_exit:
                             exit_position(symbol, current_price, reason)
 
-                    # Check entry
-                    signal = check_entry_signal(symbol, data)
+                    # Check entry (new position or DCA)
+                    signal, is_dca = check_entry_signal(symbol, data)
                     if signal:
-                        enter_position(symbol, signal, current_price, data.bar_time)
+                        enter_position(symbol, signal, current_price, data.bar_time, is_dca)
                     
                     symbols_processed += 1
 
