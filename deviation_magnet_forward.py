@@ -620,9 +620,14 @@ def enter_position(symbol: str, direction: str, price: float, bar_time: datetime
         }
         pos.orders.append(new_order)
         
+        # Show all entry prices for this position
+        all_prices = [f"${o['price']:.4f}" for o in pos.orders]
+        prices_str = " → ".join(all_prices)
+        
         logger.info(
             f"📥 DCA #{pos.num_orders}: {symbol} {direction.upper()} @ ${price:.4f} "
-            f"(+${dca_size:.0f}, total: ${pos.total_size:.0f}, avg: ${pos.avg_entry_price:.4f})"
+            f"(+${dca_size:.0f}, total: ${pos.total_size:.0f}, avg: ${pos.avg_entry_price:.4f}) | "
+            f"All entries: {prices_str}"
         )
     else:
         # New position with base order
@@ -689,13 +694,22 @@ def exit_position(symbol: str, exit_price: float, reason: str) -> None:
     state.trades.append(trade)
     state.save_trade(trade)
 
-    # Log result
+    # Log result with all entry prices
     emoji = "✅" if pnl_usd > 0 else "❌"
     dca_info = f" ({num_orders} orders)" if num_orders > 1 else ""
+    
+    # Show all individual entry prices
+    all_entry_prices = [f"${o['price']:.4f}" for o in pos.orders]
+    prices_str = " → ".join(all_entry_prices)
+    
     logger.info(
         f"{emoji} EXIT: {symbol} {pos.direction.upper()} @ ${exit_price:.4f} | "
         f"Avg Entry: ${avg_entry:.4f} | Size: ${total_size:.0f}{dca_info} | "
         f"PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%) | {reason}"
+    )
+    logger.info(
+        f"   Entry prices: {prices_str} | "
+        f"Bar times: {', '.join([o.get('bar_time', 'N/A')[:16] for o in pos.orders])}"
     )
 
     del state.positions[symbol]
@@ -796,6 +810,10 @@ def print_header() -> None:
         print(f"  Restored: {len(state.positions)} open positions")
     if state.trades:
         print(f"  Historical: {len(state.trades)} trades")
+    print(f"{'═' * 70}")
+    print(f"  Log file: {config.log_file}")
+    print(f"  State file: {config.state_file}")
+    print(f"  Trades file: {config.trades_file}")
     print(f"{'═' * 70}")
     print(f"  Press Ctrl+C to stop (state will be saved)")
     print(f"{'═' * 70}\n", flush=True)
