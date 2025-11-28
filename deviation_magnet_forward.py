@@ -49,7 +49,7 @@ class Config:
 
     # Position management
     base_order_size: float = field(default_factory=lambda: float(os.environ.get("BASE_ORDER_SIZE", "10.0")))
-    fee_pct: float = 0.0011
+    fee_pct: float = 0.00055  # 0.055% per side (standard taker)
     profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.1")))
     max_hold_minutes: int = field(default_factory=lambda: int(os.environ.get("MAX_HOLD_MINUTES", "120")))
     
@@ -739,6 +739,8 @@ class Bot:
 
     def _execute_exit(self, symbol: str, pos: Position, price: float, reason: str):
         now = datetime.now(timezone.utc)
+        
+        # Calculate PnL
         avg = pos.avg_entry_price
         total_size = pos.total_size
 
@@ -747,7 +749,34 @@ class Bot:
         else:
             pnl_pct = (avg - price) / avg * 100
             
-        pnl_usd = (pnl_pct / 100 * total_size) - (total_size * self.config.fee_pct)
+        # Fees: Apply to the ENTIRE total_size (entry) + ENTIRE total_size (exit)
+        # Assuming fee_pct is per-transaction rate (e.g. 0.055% = 0.00055)
+        # Total Fees = (Entry Volume * Fee) + (Exit Volume * Fee)
+        # Entry Volume is total_size. Exit Volume is (total_size * price / avg_entry) approx total_size
+        # To be precise on exit volume: Quantity = Size / AvgPrice. Exit Vol = Quantity * ExitPrice
+        
+        # Simplified volume-based fee calculation:
+        # Cost to Open = total_size
+        # Cost to Close = total_size * (1 + pnl_pct/100)  <-- Value at exit
+        
+        entry_fee = total_size * self.config.fee_pct
+        exit_value = total_size * (1 + pnl_pct/100) if pos.direction == "long" else total_size * (1 - pnl_pct/100)
+        # Actually for short: PnL is positive if price drops. 
+        # But simpler: Value of position = total_size. 
+        # Fees are charged on Notional Value.
+        # Notional Entry = total_size
+        # Notional Exit = total_size * (price / avg)
+        
+        notional_exit = total_size * (price / avg)
+        exit_fee = notional_exit * self.config.fee_pct
+        
+        total_fees = entry_fee + exit_fee
+        
+        # Gross PnL
+        gross_pnl_usd = pnl_pct / 100 * total_size
+        
+        # Net PnL
+        pnl_usd = gross_pnl_usd - total_fees
         
         entry_time = pos.entry_time.replace(tzinfo=timezone.utc) if pos.entry_time.tzinfo is None else pos.entry_time
         
