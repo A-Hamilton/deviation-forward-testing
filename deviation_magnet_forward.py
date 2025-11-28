@@ -3,7 +3,7 @@ Deviation Magnet Forward Tester
 ===============================
 
 Real-time paper trading bot for the Deviation Magnet strategy.
-Monitors Bybit perpetuals and enters when price hits extreme deviation bands.
+Refactored for reusability, modularity, and efficiency.
 
 Usage:
     python deviation_magnet_forward.py
@@ -18,57 +18,56 @@ import sys
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
 
 import pandas as pd
 import requests
-
-__all__ = ["Config", "main"]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-
 @dataclass
 class Config:
     """Trading configuration parameters."""
 
-    # Indicator settings (matches TradingView)
+    # Indicator settings
     bb_length: int = 20
     mult: float = 3.0
     dev_mult: float = 1.5
 
     # Timing
     timeframe: str = field(default_factory=lambda: os.environ.get("TIMEFRAME", "5"))
-    check_interval: int = 30  # seconds between checks
+    check_interval: int = 30
     
     # Parallel processing
-    max_workers: int = 5  # Concurrent API requests (conservative for rate limits)
+    max_workers: int = 5
 
     # Position management
     base_order_size: float = field(default_factory=lambda: float(os.environ.get("BASE_ORDER_SIZE", "10.0")))
-    fee_pct: float = 0.0011  # 0.11% round trip
-    profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.2")))
+    fee_pct: float = 0.0011
+    profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.1")))
     max_hold_minutes: int = field(default_factory=lambda: int(os.environ.get("MAX_HOLD_MINUTES", "120")))
     
     # DCA settings
-    dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "2.0")))  # 2x each DCA
-    max_dca_orders: int = field(default_factory=lambda: int(os.environ.get("MAX_DCA_ORDERS", "5")))  # Max orders per position
+    dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "2.0")))
+    max_dca_orders: int = field(default_factory=lambda: int(os.environ.get("MAX_DCA_ORDERS", "999999")))
 
     # Memory management
-    max_signals_cache: int = 1000  # Max signals to keep in memory
-    signals_cleanup_keep: int = 500  # Signals to keep after cleanup
+    max_signals_cache: int = 2000
+    signals_cleanup_keep: int = 1000
+    trades_memory_cap: int = 500
 
     # Status display
-    status_interval: int = 5  # Print status every N iterations
+    status_interval: int = 5
 
     # API retry settings
     api_retries: int = 3
-    api_retry_delay: float = 1.0  # Base delay in seconds
+    api_retry_delay: float = 1.0
 
     # Data paths
     data_dir: Path = field(default_factory=lambda: Path("forward_test_data"))
@@ -87,257 +86,24 @@ class Config:
 
 
 def load_symbols() -> list[str]:
-    """
-    Load symbols to monitor.
-    
-    Returns list of top liquid Bybit perpetuals.
-    Can be extended to load from config file or environment.
-    """
-    # Check for environment variable override
+    """Load symbols to monitor."""
     env_symbols = os.environ.get("TRADING_SYMBOLS")
     if env_symbols:
         return [s.strip().upper() for s in env_symbols.split(",")]
     
-    # Default symbols (Bybit perpetual naming)
     return [
         "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
-        "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "POLUSDT",      # MATIC → POL
+        "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "POLUSDT",
         "SUIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "NEARUSDT",
         "ATOMUSDT", "LTCUSDT", "BNBUSDT", "INJUSDT", "TAOUSDT",
-        "1000PEPEUSDT", "WIFUSDT", "TIAUSDT", "RENDERUSDT", "ONDOUSDT",  # PEPE → 1000PEPE, FET → TIA
+        "1000PEPEUSDT", "WIFUSDT", "TIAUSDT", "RENDERUSDT", "ONDOUSDT",
         "JUPUSDT", "ENAUSDT", "STXUSDT", "IMXUSDT", "SEIUSDT",
     ]
-
-
-# Global config instance
-config = Config()
-SYMBOLS = load_symbols()
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DATA CLASSES
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-@dataclass
-class DCAOrder:
-    """Single DCA order within a position."""
-    price: float
-    size: float
-    time: datetime
-    bar_time: str
-
-
-@dataclass
-class Position:
-    """Represents an open trading position with DCA orders."""
-
-    symbol: str
-    direction: str  # "long" or "short"
-    orders: list  # List of DCAOrder dicts for JSON serialization
-    entry_time: datetime  # First entry time
-
-    @property
-    def total_size(self) -> float:
-        """Total position size across all DCA orders."""
-        return sum(o["size"] for o in self.orders)
-
-    @property
-    def avg_entry_price(self) -> float:
-        """Volume-weighted average entry price."""
-        if not self.orders:
-            return 0
-        total_cost = sum(o["price"] * o["size"] for o in self.orders)
-        return total_cost / self.total_size
-
-    @property
-    def num_orders(self) -> int:
-        """Number of DCA orders filled."""
-        return len(self.orders)
-    
-    @property
-    def last_bar_time(self) -> str:
-        """Bar time of the most recent order."""
-        return self.orders[-1]["bar_time"] if self.orders else ""
-    
-    @property
-    def last_order_size(self) -> float:
-        """Size of the most recent order."""
-        return self.orders[-1]["size"] if self.orders else 0
-
-
-@dataclass
-class Trade:
-    """Represents a completed trade."""
-
-    symbol: str
-    direction: str
-    entry_price: float  # Average entry price
-    exit_price: float
-    entry_time: str
-    exit_time: str
-    pnl_pct: float
-    pnl_usd: float
-    hold_seconds: int
-    exit_reason: str
-    position_size: float = 0.0  # Total position size
-    num_dca_orders: int = 1  # Number of DCA fills
-
-
-@dataclass
-class BandData:
-    """Calculated indicator data for a symbol."""
-
-    close: float
-    high: float
-    low: float
-    upper3: float
-    lower3: float
-    basis: float
-    bar_time: datetime
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# STATE MANAGEMENT
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-class TradingState:
-    """Manages trading state with persistence."""
-
-    def __init__(self) -> None:
-        self.positions: dict[str, Position] = {}
-        self.trades: list[Trade] = []
-        self.signals_seen: dict[str, str] = {}
-        self.start_time: datetime = datetime.now(timezone.utc)
-        self.total_signals: int = 0
-        self.api_errors: int = 0
-
-    def save(self) -> None:
-        """Save state to disk with atomic write."""
-        try:
-            positions_data = {}
-            for sym, pos in self.positions.items():
-                positions_data[sym] = {
-                    "symbol": pos.symbol,
-                    "direction": pos.direction,
-                    "orders": pos.orders,  # List of DCA orders
-                    "entry_time": pos.entry_time.isoformat(),
-                }
-
-            state = {
-                "positions": positions_data,
-                "start_time": self.start_time.isoformat(),
-                "total_signals": self.total_signals,
-                "api_errors": self.api_errors,
-            }
-
-            # Atomic write: write to temp file, then rename
-            temp_file = config.state_file.with_suffix(".tmp")
-            with open(temp_file, "w") as f:
-                json.dump(state, f, indent=2)
-            temp_file.replace(config.state_file)
-            
-        except Exception as e:
-            logger.error(f"Failed to save state: {e}")
-
-    def load(self) -> None:
-        """Load state from disk if exists."""
-        if not config.state_file.exists():
-            return
-
-        try:
-            with open(config.state_file, "r") as f:
-                state = json.load(f)
-
-            for sym, data in state.get("positions", {}).items():
-                entry_time = datetime.fromisoformat(data["entry_time"])
-                # Ensure timezone awareness
-                if entry_time.tzinfo is None:
-                    entry_time = entry_time.replace(tzinfo=timezone.utc)
-                
-                # Handle old format (single entry_price) vs new format (orders list)
-                if "orders" in data:
-                    orders = data["orders"]
-                else:
-                    # Migrate old format to new
-                    orders = [{
-                        "price": data["entry_price"],
-                        "size": config.base_order_size,
-                        "time": data["entry_time"],
-                        "bar_time": data.get("bar_time", ""),
-                    }]
-                    
-                self.positions[sym] = Position(
-                    symbol=data["symbol"],
-                    direction=data["direction"],
-                    orders=orders,
-                    entry_time=entry_time,
-                )
-
-            if state.get("start_time"):
-                start = datetime.fromisoformat(state["start_time"])
-                if start.tzinfo is None:
-                    start = start.replace(tzinfo=timezone.utc)
-                self.start_time = start
-                
-            self.total_signals = state.get("total_signals", 0)
-            self.api_errors = state.get("api_errors", 0)
-
-            logger.info(f"Restored {len(self.positions)} open positions")
-        except Exception as e:
-            logger.error(f"Failed to load state: {e}")
-
-    def load_trades(self) -> None:
-        """Load historical trades from disk."""
-        if not config.trades_file.exists():
-            return
-
-        try:
-            with open(config.trades_file, "r") as f:
-                trades_data = json.load(f)
-
-            for t in trades_data:
-                self.trades.append(Trade(**t))
-
-            logger.info(f"Loaded {len(self.trades)} historical trades")
-        except Exception as e:
-            logger.error(f"Failed to load trades: {e}")
-
-    def save_trade(self, trade: Trade) -> None:
-        """Append trade to trades file with atomic write."""
-        try:
-            trades_data = []
-            if config.trades_file.exists():
-                with open(config.trades_file, "r") as f:
-                    trades_data = json.load(f)
-
-            trades_data.append(asdict(trade))
-
-            # Atomic write: write to temp file, then rename
-            temp_file = config.trades_file.with_suffix(".tmp")
-            with open(temp_file, "w") as f:
-                json.dump(trades_data, f, indent=2)
-            temp_file.replace(config.trades_file)
-            
-        except Exception as e:
-            logger.error(f"Failed to save trade: {e}")
-
-    def cleanup_signals(self) -> None:
-        """Remove old signals to prevent memory leak."""
-        if len(self.signals_seen) > config.max_signals_cache:
-            items = list(self.signals_seen.items())
-            self.signals_seen = dict(items[-config.signals_cleanup_keep:])
-
-
-# Global state
-state = TradingState()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # LOGGING
 # ═══════════════════════════════════════════════════════════════════════════════
-
 
 class FlushStreamHandler(logging.StreamHandler):
     """StreamHandler that flushes after every emit."""
@@ -345,28 +111,22 @@ class FlushStreamHandler(logging.StreamHandler):
         super().emit(record)
         self.flush()
 
-
-def setup_logging() -> logging.Logger:
-    """Configure logging with console and file handlers."""
+def setup_logging(config: Config) -> logging.Logger:
+    """Configure logging."""
     log = logging.getLogger("deviation_magnet")
-    
-    # Prevent duplicate handlers on re-initialization
     if log.handlers:
         return log
     
     log.setLevel(logging.INFO)
-
     formatter = logging.Formatter(
         "%(asctime)s | %(levelname)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Console handler with auto-flush
     console = FlushStreamHandler(sys.stdout)
     console.setFormatter(formatter)
     log.addHandler(console)
 
-    # File handler - ensure directory exists first
     try:
         config.data_dir.mkdir(exist_ok=True)
         file_handler = logging.FileHandler(config.log_file)
@@ -378,567 +138,645 @@ def setup_logging() -> logging.Logger:
     return log
 
 
-logger = setup_logging()
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA CLASSES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class DCAOrder:
+    """Single DCA order."""
+    price: float
+    size: float
+    time: datetime
+    bar_time: str
+
+@dataclass
+class Position:
+    """Open trading position."""
+    symbol: str
+    direction: str
+    orders: list
+    entry_time: datetime
+    
+    # Stats
+    max_runup_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+    bars_held: int = 0
+    last_processed_bar: Optional[str] = None
+
+    @property
+    def total_size(self) -> float:
+        return sum(o["size"] for o in self.orders)
+
+    @property
+    def avg_entry_price(self) -> float:
+        if not self.orders:
+            return 0
+        total_cost = sum(o["price"] * o["size"] for o in self.orders)
+        return total_cost / self.total_size
+
+    @property
+    def num_orders(self) -> int:
+        return len(self.orders)
+    
+    @property
+    def last_bar_time(self) -> str:
+        return self.orders[-1]["bar_time"] if self.orders else ""
+
+@dataclass
+class Trade:
+    """Completed trade record."""
+    symbol: str
+    direction: str
+    entry_price: float
+    exit_price: float
+    entry_time: str
+    exit_time: str
+    pnl_pct: float
+    pnl_usd: float
+    hold_seconds: int
+    exit_reason: str
+    position_size: float = 0.0
+    num_dca_orders: int = 1
+    
+    # Stats
+    max_runup_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+    bars_held: int = 0
+
+@dataclass
+class BandData:
+    """Indicator values."""
+    close: float
+    high: float
+    low: float
+    upper3: float
+    lower3: float
+    basis: float
+    bar_time: datetime
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# API FUNCTIONS
+# COMPONENTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class TradingState:
+    """Manages trading state with persistence."""
 
-def fetch_klines(symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
-    """
-    Fetch recent klines from Bybit with retry logic.
+    def __init__(self, config: Config) -> None:
+        self.config = config
+        self.positions: Dict[str, Position] = {}
+        self.trades: List[Trade] = []
+        self.signals_seen: Dict[str, str] = {}
+        self.start_time: datetime = datetime.now(timezone.utc)
+        self.total_signals: int = 0
+        self.api_errors: int = 0
+        self._lock = Lock()
+        self.logger = logging.getLogger("deviation_magnet")
 
-    Args:
-        symbol: Trading pair (e.g., "BTCUSDT")
-        limit: Number of candles to fetch
+    def increment_errors(self) -> None:
+        with self._lock:
+            self.api_errors += 1
 
-    Returns:
-        DataFrame with OHLCV data or None on error
-    """
-    url = "https://api.bybit.com/v5/market/kline"
-    params = {
-        "category": "linear",
-        "symbol": symbol,
-        "interval": config.timeframe,
-        "limit": limit,
-    }
-
-    for attempt in range(config.api_retries):
+    def save(self) -> None:
+        """Atomic save of state."""
         try:
-            resp = requests.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
+            positions_data = {}
+            for sym, pos in self.positions.items():
+                positions_data[sym] = {
+                    "symbol": pos.symbol,
+                    "direction": pos.direction,
+                    "orders": pos.orders,
+                    "entry_time": pos.entry_time.isoformat(),
+                    "max_runup_pct": pos.max_runup_pct,
+                    "max_drawdown_pct": pos.max_drawdown_pct,
+                    "bars_held": pos.bars_held,
+                    "last_processed_bar": pos.last_processed_bar,
+                }
 
-            if data["retCode"] != 0:
-                logger.warning(f"API error for {symbol}: retCode={data['retCode']}, msg={data.get('retMsg', 'unknown')}")
-                return None
+            state_data = {
+                "positions": positions_data,
+                "start_time": self.start_time.isoformat(),
+                "total_signals": self.total_signals,
+                "api_errors": self.api_errors,
+            }
+
+            temp_file = self.config.state_file.with_suffix(".tmp")
+            with open(temp_file, "w") as f:
+                json.dump(state_data, f, indent=2)
+            temp_file.replace(self.config.state_file)
             
-            if not data.get("result", {}).get("list"):
-                logger.warning(f"Empty data for {symbol}: {data}")
-                return None
-
-            df = pd.DataFrame(
-                data["result"]["list"],
-                columns=["open_time", "open", "high", "low", "close", "volume", "turnover"],
-            )
-            df = df.iloc[::-1].reset_index(drop=True)
-            df["open_time"] = pd.to_datetime(df["open_time"].astype(int), unit="ms")
-
-            for col in ["open", "high", "low", "close"]:
-                df[col] = df[col].astype(float)
-
-            return df
-
-        except requests.exceptions.RequestException as e:
-            if attempt < config.api_retries - 1:
-                time.sleep(config.api_retry_delay * (2 ** attempt))
-            else:
-                logger.warning(f"Request failed for {symbol} after {config.api_retries} attempts: {e}")
         except Exception as e:
-            logger.warning(f"Unexpected error fetching {symbol}: {e}")
-            break
+            self.logger.error(f"Failed to save state: {e}")
 
-    state.api_errors += 1
-    return None
+    def load(self) -> None:
+        """Load state from disk."""
+        if not self.config.state_file.exists():
+            return
+
+        try:
+            with open(self.config.state_file, "r") as f:
+                state_data = json.load(f)
+
+            for sym, data in state_data.get("positions", {}).items():
+                entry_time = datetime.fromisoformat(data["entry_time"])
+                if entry_time.tzinfo is None:
+                    entry_time = entry_time.replace(tzinfo=timezone.utc)
+                
+                orders = data.get("orders", [])
+                # Migration logic for old format could go here if needed
+                
+                self.positions[sym] = Position(
+                    symbol=data["symbol"],
+                    direction=data["direction"],
+                    orders=orders,
+                    entry_time=entry_time,
+                    max_runup_pct=data.get("max_runup_pct", 0.0),
+                    max_drawdown_pct=data.get("max_drawdown_pct", 0.0),
+                    bars_held=data.get("bars_held", 0),
+                    last_processed_bar=data.get("last_processed_bar"),
+                )
+
+            if state_data.get("start_time"):
+                start = datetime.fromisoformat(state_data["start_time"])
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=timezone.utc)
+                self.start_time = start
+                
+            self.total_signals = state_data.get("total_signals", 0)
+            self.api_errors = state_data.get("api_errors", 0)
+
+            self.logger.info(f"Restored {len(self.positions)} open positions")
+        except Exception as e:
+            self.logger.error(f"Failed to load state: {e}")
+
+    def load_trades(self) -> None:
+        """Load historical trades."""
+        if not self.config.trades_file.exists():
+            return
+
+        try:
+            with open(self.config.trades_file, "r") as f:
+                trades_data = json.load(f)
+
+            # Cap memory usage
+            recent = trades_data[-self.config.trades_memory_cap:]
+            for t in recent:
+                self.trades.append(Trade(**t))
+
+            self.logger.info(f"Loaded {len(self.trades)} recent trades (total {len(trades_data)})")
+        except Exception as e:
+            self.logger.error(f"Failed to load trades: {e}")
+
+    def add_trade(self, trade: Trade) -> None:
+        """Add trade to memory and disk."""
+        self.trades.append(trade)
+        if len(self.trades) > self.config.trades_memory_cap:
+            self.trades.pop(0)
+        
+        self._save_trade_disk(trade)
+
+    def _save_trade_disk(self, trade: Trade) -> None:
+        try:
+            trades_data = []
+            if self.config.trades_file.exists():
+                with open(self.config.trades_file, "r") as f:
+                    trades_data = json.load(f)
+
+            trades_data.append(asdict(trade))
+
+            temp_file = self.config.trades_file.with_suffix(".tmp")
+            with open(temp_file, "w") as f:
+                json.dump(trades_data, f, indent=2)
+            temp_file.replace(self.config.trades_file)
+        except Exception as e:
+            self.logger.error(f"Failed to save trade: {e}")
+
+    def cleanup_signals(self) -> None:
+        if len(self.signals_seen) > self.config.max_signals_cache:
+            items = list(self.signals_seen.items())
+            self.signals_seen = dict(items[-self.config.signals_cleanup_keep:])
 
 
-def get_current_price(symbol: str) -> Optional[float]:
-    """Get current last price from Bybit."""
-    url = "https://api.bybit.com/v5/market/tickers"
-    params = {"category": "linear", "symbol": symbol}
+class BybitClient:
+    """Handles API interactions."""
 
-    try:
-        resp = requests.get(url, params=params, timeout=5)
-        data = resp.json()
-        if data["retCode"] == 0 and data["result"]["list"]:
-            return float(data["result"]["list"][0]["lastPrice"])
-    except Exception:
-        pass
+    def __init__(self, config: Config, state: TradingState):
+        self.config = config
+        self.state = state
+        self.logger = logging.getLogger("deviation_magnet")
+        self.session = requests.Session()
 
-    return None
+    def fetch_klines(self, symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
+        url = "https://api.bybit.com/v5/market/kline"
+        params = {
+            "category": "linear",
+            "symbol": symbol,
+            "interval": self.config.timeframe,
+            "limit": limit,
+        }
 
+        for attempt in range(self.config.api_retries):
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# INDICATOR CALCULATION
-# ═══════════════════════════════════════════════════════════════════════════════
+                if data["retCode"] != 0:
+                    self.logger.warning(f"API error {symbol}: {data.get('retMsg')}")
+                    return None
+                
+                if not data.get("result", {}).get("list"):
+                    return None
 
+                df = pd.DataFrame(
+                    data["result"]["list"],
+                    columns=["open_time", "open", "high", "low", "close", "volume", "turnover"],
+                )
+                df = df.iloc[::-1].reset_index(drop=True)
+                df["open_time"] = pd.to_datetime(df["open_time"].astype(int), unit="ms")
+                for col in ["open", "high", "low", "close"]:
+                    df[col] = df[col].astype(float)
 
-def calculate_bands(df: pd.DataFrame) -> Optional[BandData]:
-    """
-    Calculate deviation bands from OHLCV data.
+                return df
 
-    Uses SMA(20) of OHLC4 with 3σ standard deviation bands.
+            except requests.exceptions.RequestException as e:
+                if attempt < self.config.api_retries - 1:
+                    time.sleep(self.config.api_retry_delay * (2 ** attempt))
+                else:
+                    self.logger.warning(f"Failed to fetch {symbol}: {e}")
+            except Exception as e:
+                self.logger.warning(f"Unexpected error {symbol}: {e}")
+                break
 
-    Args:
-        df: DataFrame with OHLCV data
-
-    Returns:
-        BandData with calculated values or None if insufficient data
-    """
-    if df is None or len(df) < config.bb_length:
+        self.state.increment_errors()
         return None
 
-    df = df.copy()
-    df["ohlc4"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
-    df["basis"] = df["ohlc4"].rolling(config.bb_length).mean()
-    df["stdev"] = df["ohlc4"].rolling(config.bb_length).std(ddof=0)  # Population std
-    df["dev"] = config.mult * df["stdev"]
-    df["upper3"] = df["basis"] + df["dev"] * config.dev_mult
-    df["lower3"] = df["basis"] - df["dev"] * config.dev_mult
-
-    latest = df.iloc[-1]
-    if pd.isna(latest["upper3"]):
+    def get_current_price(self, symbol: str) -> Optional[float]:
+        url = "https://api.bybit.com/v5/market/tickers"
+        try:
+            resp = self.session.get(url, params={"category": "linear", "symbol": symbol}, timeout=5)
+            data = resp.json()
+            if data["retCode"] == 0 and data["result"]["list"]:
+                return float(data["result"]["list"][0]["lastPrice"])
+        except Exception:
+            pass
         return None
 
-    return BandData(
-        close=latest["close"],
-        high=latest["high"],
-        low=latest["low"],
-        upper3=latest["upper3"],
-        lower3=latest["lower3"],
-        basis=latest["basis"],
-        bar_time=latest["open_time"],
-    )
 
+class DeviationMagnetStrategy:
+    """Core strategy logic."""
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TRADING LOGIC
-# ═══════════════════════════════════════════════════════════════════════════════
+    def __init__(self, config: Config):
+        self.config = config
 
+    def calculate_bands(self, df: pd.DataFrame) -> Optional[BandData]:
+        if df is None or len(df) < self.config.bb_length:
+            return None
 
-def check_entry_signal(symbol: str, data: BandData) -> tuple[Optional[str], bool]:
-    """
-    Check for entry signal (new position or DCA).
+        df = df.copy()
+        df["ohlc4"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
+        df["basis"] = df["ohlc4"].rolling(self.config.bb_length).mean()
+        df["stdev"] = df["ohlc4"].rolling(self.config.bb_length).std(ddof=0)
+        df["dev"] = self.config.mult * df["stdev"]
+        df["upper3"] = df["basis"] + df["dev"] * self.config.dev_mult
+        df["lower3"] = df["basis"] - df["dev"] * self.config.dev_mult
 
-    Args:
-        symbol: Trading pair
-        data: Calculated band data
+        latest = df.iloc[-1]
+        if pd.isna(latest["upper3"]):
+            return None
 
-    Returns:
-        Tuple of (direction, is_dca) where direction is "long", "short", or None
-    """
-    bar_key = f"{symbol}_{data.bar_time}"
-    
-    # Check if already in position - might be DCA opportunity
-    if symbol in state.positions:
-        pos = state.positions[symbol]
+        return BandData(
+            close=latest["close"],
+            high=latest["high"],
+            low=latest["low"],
+            upper3=latest["upper3"],
+            lower3=latest["lower3"],
+            basis=latest["basis"],
+            bar_time=latest["open_time"],
+        )
+
+    def check_entry(self, symbol: str, data: BandData, state: TradingState) -> Tuple[Optional[str], bool]:
+        """Returns (direction, is_dca)."""
+        bar_time_str = data.bar_time.isoformat() if hasattr(data.bar_time, 'isoformat') else str(data.bar_time)
+        bar_key = f"{symbol}_{bar_time_str}"
         
-        # Check if we already DCA'd this bar
-        if pos.last_bar_time == str(data.bar_time):
+        # 1. Check Existing Position (DCA)
+        if symbol in state.positions:
+            pos = state.positions[symbol]
+            
+            if pos.last_bar_time == bar_time_str:
+                return None, False  # Already acted this bar
+            
+            if pos.num_orders >= self.config.max_dca_orders:
+                return None, False
+
+            if pos.direction == "long" and data.close <= data.lower3:
+                state.total_signals += 1
+                return "long", True
+            elif pos.direction == "short" and data.close >= data.upper3:
+                state.total_signals += 1
+                return "short", True
+            
             return None, False
-        
-        # Check max DCA orders
-        if pos.num_orders >= config.max_dca_orders:
+
+        # 2. Check New Entry
+        if bar_key in state.signals_seen:
             return None, False
-        
-        # Check if price still outside bands in same direction
-        if pos.direction == "long" and data.close <= data.lower3:
+
+        if data.close <= data.lower3:
+            state.signals_seen[bar_key] = "long"
             state.total_signals += 1
-            return "long", True  # DCA long
-        elif pos.direction == "short" and data.close >= data.upper3:
+            return "long", False
+        elif data.close >= data.upper3:
+            state.signals_seen[bar_key] = "short"
             state.total_signals += 1
-            return "short", True  # DCA short
-        
+            return "short", False
+
         return None, False
-    
-    # New position entry
-    if bar_key in state.signals_seen:
-        return None, False  # Already signaled this bar
 
-    if data.close <= data.lower3:
-        state.signals_seen[bar_key] = "long"
-        state.total_signals += 1
-        return "long", False
-    elif data.close >= data.upper3:
-        state.signals_seen[bar_key] = "short"
-        state.total_signals += 1
-        return "short", False
+    def check_exit(self, position: Position, current_price: float) -> Tuple[bool, str]:
+        avg_entry = position.avg_entry_price
+        
+        if position.direction == "long":
+            pnl_pct = (current_price - avg_entry) / avg_entry * 100
+        else:
+            pnl_pct = (avg_entry - current_price) / avg_entry * 100
 
-    return None, False
+        if pnl_pct >= self.config.profit_target_pct:
+            return True, "profit_target"
 
+        now = datetime.now(timezone.utc)
+        entry = position.entry_time
+        if entry.tzinfo is None:
+            entry = entry.replace(tzinfo=timezone.utc)
+        
+        hold_minutes = (now - entry).total_seconds() / 60
+        if hold_minutes >= self.config.max_hold_minutes:
+            return True, "max_hold"
 
-def check_exit_signal(symbol: str, current_price: float) -> tuple[bool, str]:
-    """
-    Check if position should exit.
-
-    Args:
-        symbol: Trading pair
-        current_price: Current market price
-
-    Returns:
-        Tuple of (should_exit, reason)
-    """
-    if symbol not in state.positions:
         return False, ""
 
-    pos = state.positions[symbol]
-    avg_entry = pos.avg_entry_price
-
-    # Calculate unrealized PnL based on average entry
-    if pos.direction == "long":
-        pnl_pct = (current_price - avg_entry) / avg_entry * 100
-    else:
-        pnl_pct = (avg_entry - current_price) / avg_entry * 100
-
-    # Check profit target
-    if pnl_pct >= config.profit_target_pct:
-        return True, "profit_target"
-
-    # Check max hold time (from first entry)
-    now = datetime.now(timezone.utc)
-    # Handle timezone-naive entry_time
-    entry = pos.entry_time
-    if entry.tzinfo is None:
-        entry = entry.replace(tzinfo=timezone.utc)
-    
-    hold_minutes = (now - entry).total_seconds() / 60
-    if hold_minutes >= config.max_hold_minutes:
-        return True, "max_hold"
-
-    return False, ""
-
-
-def enter_position(symbol: str, direction: str, price: float, bar_time: datetime, is_dca: bool = False) -> None:
-    """Open a new position or add DCA order to existing position."""
-    now = datetime.now(timezone.utc)
-    
-    if is_dca and symbol in state.positions:
-        # DCA into existing position
-        pos = state.positions[symbol]
-        
-        # Calculate DCA order size: base_size * scale^(order_number)
-        # E.g., with scale=2: $10, $20, $40, $80...
-        dca_size = config.base_order_size * (config.dca_scale ** pos.num_orders)
-        
-        new_order = {
-            "price": price,
-            "size": dca_size,
-            "time": now.isoformat(),
-            "bar_time": str(bar_time),
-        }
-        pos.orders.append(new_order)
-        
-        # Show all entry prices for this position
-        all_prices = [f"${o['price']:.4f}" for o in pos.orders]
-        prices_str = " → ".join(all_prices)
-        
-        logger.info(
-            f"📥 DCA #{pos.num_orders}: {symbol} {direction.upper()} @ ${price:.4f} "
-            f"(+${dca_size:.0f}, total: ${pos.total_size:.0f}, avg: ${pos.avg_entry_price:.4f}) | "
-            f"All entries: {prices_str}"
-        )
-    else:
-        # New position with base order
-        initial_order = {
-            "price": price,
-            "size": config.base_order_size,
-            "time": now.isoformat(),
-            "bar_time": str(bar_time),
-        }
-        state.positions[symbol] = Position(
-            symbol=symbol,
-            direction=direction,
-            orders=[initial_order],
-            entry_time=now,
-        )
-        logger.info(f"📥 ENTRY: {symbol} {direction.upper()} @ ${price:.4f} (${config.base_order_size:.0f})")
-    
-    state.save()
-
-
-def exit_position(symbol: str, exit_price: float, reason: str) -> None:
-    """Close a position and record the trade."""
-    if symbol not in state.positions:
-        return
-
-    pos = state.positions[symbol]
-    now = datetime.now(timezone.utc)
-    
-    # Get position metrics
-    avg_entry = pos.avg_entry_price
-    total_size = pos.total_size
-    num_orders = pos.num_orders
-
-    # Calculate PnL based on average entry price
-    if pos.direction == "long":
-        pnl_pct = (exit_price - avg_entry) / avg_entry * 100
-    else:
-        pnl_pct = (avg_entry - exit_price) / avg_entry * 100
-
-    # PnL in USD based on total position size
-    pnl_usd = (pnl_pct / 100 * total_size) - (total_size * config.fee_pct)
-
-    # Handle timezone-naive entry_time
-    entry_time = pos.entry_time
-    if entry_time.tzinfo is None:
-        entry_time = entry_time.replace(tzinfo=timezone.utc)
-
-    # Create trade record
-    trade = Trade(
-        symbol=symbol,
-        direction=pos.direction,
-        entry_price=avg_entry,
-        exit_price=exit_price,
-        entry_time=entry_time.strftime("%Y-%m-%d %H:%M:%S"),
-        exit_time=now.strftime("%Y-%m-%d %H:%M:%S"),
-        pnl_pct=round(pnl_pct, 4),
-        pnl_usd=round(pnl_usd, 4),
-        hold_seconds=int((now - entry_time).total_seconds()),
-        exit_reason=reason,
-        position_size=total_size,
-        num_dca_orders=num_orders,
-    )
-
-    state.trades.append(trade)
-    state.save_trade(trade)
-
-    # Log result with all entry prices
-    emoji = "✅" if pnl_usd > 0 else "❌"
-    dca_info = f" ({num_orders} orders)" if num_orders > 1 else ""
-    
-    # Show all individual entry prices
-    all_entry_prices = [f"${o['price']:.4f}" for o in pos.orders]
-    prices_str = " → ".join(all_entry_prices)
-    
-    logger.info(
-        f"{emoji} EXIT: {symbol} {pos.direction.upper()} @ ${exit_price:.4f} | "
-        f"Avg Entry: ${avg_entry:.4f} | Size: ${total_size:.0f}{dca_info} | "
-        f"PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%) | {reason}"
-    )
-    logger.info(
-        f"   Entry prices: {prices_str} | "
-        f"Bar times: {', '.join([o.get('bar_time', 'N/A')[:16] for o in pos.orders])}"
-    )
-
-    del state.positions[symbol]
-    state.save()
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DISPLAY
+# BOT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class Bot:
+    """Main controller."""
 
-def print_status() -> None:
-    """Print current trading status."""
-    now = datetime.now(timezone.utc)
-    start = state.start_time
-    if start.tzinfo is None:
-        start = start.replace(tzinfo=timezone.utc)
-    runtime = now - start
+    def __init__(self):
+        self.config = Config()
+        self.logger = setup_logging(self.config)
+        self.state = TradingState(self.config)
+        self.client = BybitClient(self.config, self.state)
+        self.strategy = DeviationMagnetStrategy(self.config)
+        self.symbols = load_symbols()
 
-    print(f"\n{'─' * 70}")
-    print(f"  ⏱  Runtime: {str(runtime).split('.')[0]} | Signals: {state.total_signals} | Errors: {state.api_errors}")
-    print(f"{'─' * 70}")
+    def run(self):
+        """Start the bot loop."""
+        self.state.load()
+        self.state.load_trades()
+        self._print_header()
 
-    # Open positions
-    print(f"  📊 Open Positions: {len(state.positions)}")
-    for sym, pos in state.positions.items():
-        price = get_current_price(sym)
-        if price:
-            avg_entry = pos.avg_entry_price
-            if pos.direction == "long":
-                pnl = (price - avg_entry) / avg_entry * 100
-            else:
-                pnl = (avg_entry - price) / avg_entry * 100
+        self.logger.info("🔄 Starting main loop...")
+        print("🔄 Starting main loop...", flush=True)
 
-            entry = pos.entry_time
-            if entry.tzinfo is None:
-                entry = entry.replace(tzinfo=timezone.utc)
-            hold_mins = (now - entry).total_seconds() / 60
-            
-            pnl_indicator = "▲" if pnl > 0 else "▼"
-            dca_info = f"[{pos.num_orders}x]" if pos.num_orders > 1 else ""
-            print(
-                f"      {sym:<12} {pos.direction.upper():<5} {dca_info:<5} "
-                f"${avg_entry:<10.4f} → ${price:<10.4f} "
-                f"{pnl_indicator} {pnl:>+7.2f}%  (${pos.total_size:.0f}, {hold_mins:.0f}m)"
-            )
+        iteration = 0
+        last_daily = datetime.now(timezone.utc).date()
+        
+        executor = ThreadPoolExecutor(max_workers=self.config.max_workers)
 
-    # Trade statistics
-    print(f"\n  📈 Closed Trades: {len(state.trades)}")
-    if state.trades:
-        total_pnl = sum(t.pnl_usd for t in state.trades)
-        winners = [t for t in state.trades if t.pnl_usd > 0]
-        losers = [t for t in state.trades if t.pnl_usd <= 0]
-
-        win_rate = len(winners) / len(state.trades) * 100 if state.trades else 0
-        avg_win = sum(t.pnl_usd for t in winners) / len(winners) if winners else 0
-        avg_loss = sum(t.pnl_usd for t in losers) / len(losers) if losers else 0
-
-        pnl_indicator = "▲" if total_pnl > 0 else "▼"
-        print(f"      Total PnL: {pnl_indicator} ${total_pnl:.2f} | Win Rate: {win_rate:.0f}% ({len(winners)}W / {len(losers)}L)")
-        print(f"      Avg Win: ${avg_win:.2f} | Avg Loss: ${avg_loss:.2f}")
-
-        # Last 5 trades
-        print(f"\n      Recent trades:")
-        for t in state.trades[-5:]:
-            emoji = "✅" if t.pnl_usd > 0 else "❌"
-            dca_info = f"[{t.num_dca_orders}x]" if t.num_dca_orders > 1 else ""
-            size_info = f"${t.position_size:.0f}" if t.position_size > 0 else ""
-            print(f"        {emoji} {t.symbol:<10} {t.direction:<5} {dca_info:<5} ${t.pnl_usd:>+7.2f} {size_info} ({t.exit_reason})")
-
-    print(f"{'─' * 70}\n", flush=True)
-
-
-def print_header() -> None:
-    """Print startup header."""
-    print(f"\n{'═' * 70}")
-    print(f"  🚀 DEVIATION MAGNET - 24/7 FORWARD TEST (DCA Mode)")
-    print(f"{'═' * 70}")
-    print(f"  Timeframe:      {config.timeframe}m candles")
-    print(f"  Check Interval: {config.check_interval}s")
-    print(f"  Symbols:        {len(SYMBOLS)}")
-    print(f"  Base Order:     ${config.base_order_size}")
-    print(f"  DCA Scale:      {config.dca_scale}x (max {config.max_dca_orders} orders)")
-    print(f"  Profit Target:  {config.profit_target_pct}%")
-    print(f"  Max Hold:       {config.max_hold_minutes} minutes")
-    print(f"  Bands:          SMA({config.bb_length}) ± {config.mult}σ × {config.dev_mult}")
-    print(f"{'═' * 70}")
-    print(f"  DCA Example: ${config.base_order_size:.0f}", end="")
-    total = config.base_order_size
-    for i in range(1, min(4, config.max_dca_orders)):
-        order = config.base_order_size * (config.dca_scale ** i)
-        total += order
-        print(f" → ${order:.0f}", end="")
-    print(f" ... (max ${total:.0f}+)")
-    print(f"{'═' * 70}")
-    print(f"  Started: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    if state.positions:
-        print(f"  Restored: {len(state.positions)} open positions")
-    if state.trades:
-        print(f"  Historical: {len(state.trades)} trades")
-    print(f"{'═' * 70}")
-    print(f"  Log file: {config.log_file}")
-    print(f"  State file: {config.state_file}")
-    print(f"  Trades file: {config.trades_file}")
-    print(f"{'═' * 70}")
-    print(f"  Press Ctrl+C to stop (state will be saved)")
-    print(f"{'═' * 70}\n", flush=True)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def main() -> None:
-    """Main trading loop."""
-    # Load previous state
-    state.load()
-    state.load_trades()
-
-    print_header()
-    
-    logger.info("🔄 Starting main loop...")
-    print("🔄 Starting main loop...", flush=True)
-
-    iteration = 0
-    last_daily = datetime.now(timezone.utc).date()
-
-    try:
-        while True:
-            iteration += 1
-            
-            if iteration == 1:
-                logger.info(f"First iteration starting, scanning {len(SYMBOLS)} symbols...")
-                print(f"First iteration starting, scanning {len(SYMBOLS)} symbols...", flush=True)
-
-            # Fetch all klines in parallel
-            if iteration == 1:
-                logger.info(f"Fetching data for {len(SYMBOLS)} symbols in parallel...")
-            
-            klines_data: dict[str, Optional[pd.DataFrame]] = {}
-            with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
-                future_to_symbol = {executor.submit(fetch_klines, sym): sym for sym in SYMBOLS}
-                for future in as_completed(future_to_symbol):
-                    symbol = future_to_symbol[future]
-                    try:
-                        klines_data[symbol] = future.result()
-                    except Exception as e:
-                        logger.error(f"Error fetching {symbol}: {e}")
-                        klines_data[symbol] = None
-            
-            if iteration == 1:
-                valid_count = sum(1 for df in klines_data.values() if df is not None)
-                logger.info(f"Fetched data for {valid_count}/{len(SYMBOLS)} symbols")
-            
-            # Process each symbol
-            symbols_processed = 0
-            for symbol in SYMBOLS:
-                try:
-                    df = klines_data.get(symbol)
-                    data = calculate_bands(df)
-
-                    if data is None:
-                        symbols_processed += 1
-                        continue
-
-                    current_price = data.close
-
-                    # Check exit first
-                    if symbol in state.positions:
-                        should_exit, reason = check_exit_signal(symbol, current_price)
-                        if should_exit:
-                            exit_position(symbol, current_price, reason)
-
-                    # Check entry (new position or DCA)
-                    signal, is_dca = check_entry_signal(symbol, data)
-                    if signal:
-                        enter_position(symbol, signal, current_price, data.bar_time, is_dca)
-                    
-                    symbols_processed += 1
-
-                except Exception as e:
-                    logger.error(f"Error processing {symbol}: {e}")
-                    logger.error(traceback.format_exc())
-            
-            if iteration == 1:
-                logger.info(f"First iteration complete: processed {symbols_processed}/{len(SYMBOLS)} symbols")
-
-            # Status update every N iterations
-            if iteration % config.status_interval == 0:
-                print_status()
-                state.cleanup_signals()
-                logger.info(f"Heartbeat: iteration {iteration} | positions: {len(state.positions)} | trades: {len(state.trades)}")
-
-            # Daily summary
-            today = datetime.now(timezone.utc).date()
-            if today != last_daily:
-                last_daily = today
-                yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
-                yesterday_trades = [
-                    t for t in state.trades
-                    if t.exit_time.startswith(str(yesterday))
-                ]
-                if yesterday_trades:
-                    total = sum(t.pnl_usd for t in yesterday_trades)
-                    logger.info(f"📊 Yesterday: {len(yesterday_trades)} trades | PnL: ${total:.2f}")
-
-            # Log completion of iteration
-            if iteration <= 3 or iteration % 10 == 0:
-                logger.info(f"Completed iteration {iteration}")
+        try:
+            while True:
+                iteration += 1
                 
-            time.sleep(config.check_interval)
+                # Fetch Data
+                klines_map = self._fetch_all_data(executor)
+                
+                # Process
+                processed = 0
+                for symbol in self.symbols:
+                    try:
+                        processed += self._process_symbol(symbol, klines_map.get(symbol))
+                    except Exception as e:
+                        self.logger.error(f"Error processing {symbol}: {e}")
+                        self.logger.error(traceback.format_exc())
 
-    except KeyboardInterrupt:
-        logger.info("Stopping... saving state")
-        state.save()
-        print_status()
-        print("\n✅ State saved. Run again to resume.\n", flush=True)
-    except Exception as e:
-        logger.error(f"💥 FATAL ERROR: {e}")
-        logger.error(traceback.format_exc())
-        state.save()
-        raise
+                # Reporting
+                if iteration % self.config.status_interval == 0:
+                    self._print_status()
+                    self.state.cleanup_signals()
+                    self.logger.info(f"Heartbeat: iter {iteration} | pos: {len(self.state.positions)}")
+
+                # Daily Stats
+                today = datetime.now(timezone.utc).date()
+                if today != last_daily:
+                    self._daily_report(last_daily)
+                    last_daily = today
+
+                if iteration <= 3:
+                    self.logger.info(f"Completed iteration {iteration}")
+
+                time.sleep(self.config.check_interval)
+
+        except KeyboardInterrupt:
+            self.logger.info("Stopping... saving state")
+            self.state.save()
+            self._print_status()
+            print("\n✅ State saved. Run again to resume.\n", flush=True)
+        except Exception as e:
+            self.logger.error(f"💥 FATAL ERROR: {e}")
+            self.logger.error(traceback.format_exc())
+            self.state.save()
+            raise
+        finally:
+            executor.shutdown(wait=False)
+
+    def _fetch_all_data(self, executor: ThreadPoolExecutor) -> Dict[str, Optional[pd.DataFrame]]:
+        results = {}
+        futures = {executor.submit(self.client.fetch_klines, sym): sym for sym in self.symbols}
+        
+        for future in as_completed(futures):
+            sym = futures[future]
+            try:
+                results[sym] = future.result()
+            except Exception:
+                results[sym] = None
+        return results
+
+    def _process_symbol(self, symbol: str, df: Optional[pd.DataFrame]) -> int:
+        if df is None:
+            return 0
+
+        data = self.strategy.calculate_bands(df)
+        if not data:
+            return 0
+        
+        current_price = data.close
+        
+        # Update Stats if in position
+        if symbol in self.state.positions:
+            self._update_position_stats(symbol, current_price, data)
+
+        # Check Exit
+        if symbol in self.state.positions:
+            pos = self.state.positions[symbol]
+            should_exit, reason = self.strategy.check_exit(pos, current_price)
+            if should_exit:
+                self._execute_exit(symbol, pos, current_price, reason)
+                # Mark as seen so we don't re-enter immediately
+                bar_key = f"{symbol}_{self._fmt_time(data.bar_time)}"
+                self.state.signals_seen[bar_key] = "exit"
+                return 1
+
+        # Check Entry
+        direction, is_dca = self.strategy.check_entry(symbol, data, self.state)
+        if direction:
+            self._execute_entry(symbol, direction, current_price, data.bar_time, is_dca)
+            
+        return 1
+
+    def _update_position_stats(self, symbol: str, current_price: float, data: BandData):
+        pos = self.state.positions[symbol]
+        avg = pos.avg_entry_price
+        
+        if pos.direction == "long":
+            pnl_pct = (current_price - avg) / avg * 100
+        else:
+            pnl_pct = (avg - current_price) / avg * 100
+            
+        pos.max_runup_pct = max(pos.max_runup_pct, pnl_pct)
+        pos.max_drawdown_pct = min(pos.max_drawdown_pct, pnl_pct)
+        
+        bar_str = self._fmt_time(data.bar_time)
+        if pos.last_processed_bar != bar_str:
+            pos.bars_held += 1
+            pos.last_processed_bar = bar_str
+
+    def _execute_entry(self, symbol: str, direction: str, price: float, bar_time: datetime, is_dca: bool):
+        now = datetime.now(timezone.utc)
+        bar_str = self._fmt_time(bar_time)
+
+        if is_dca and symbol in self.state.positions:
+            pos = self.state.positions[symbol]
+            scale_mult = self.config.dca_scale ** pos.num_orders
+            size = self.config.base_order_size * scale_mult
+            
+            pos.orders.append({
+                "price": price,
+                "size": size,
+                "time": now.isoformat(),
+                "bar_time": bar_str
+            })
+            
+            self.logger.info(
+                f"📥 DCA #{pos.num_orders}: {symbol} {direction.upper()} @ ${price:.4f} "
+                f"(+${size:.0f}, total: ${pos.total_size:.0f}) | Avg: ${pos.avg_entry_price:.4f}"
+            )
+        else:
+            initial = {
+                "price": price,
+                "size": self.config.base_order_size,
+                "time": now.isoformat(),
+                "bar_time": bar_str
+            }
+            self.state.positions[symbol] = Position(
+                symbol=symbol,
+                direction=direction,
+                orders=[initial],
+                entry_time=now,
+            )
+            self.logger.info(f"📥 ENTRY: {symbol} {direction.upper()} @ ${price:.4f} (${self.config.base_order_size:.0f})")
+
+        self.state.save()
+
+    def _execute_exit(self, symbol: str, pos: Position, price: float, reason: str):
+        now = datetime.now(timezone.utc)
+        avg = pos.avg_entry_price
+        total_size = pos.total_size
+
+        if pos.direction == "long":
+            pnl_pct = (price - avg) / avg * 100
+        else:
+            pnl_pct = (avg - price) / avg * 100
+            
+        pnl_usd = (pnl_pct / 100 * total_size) - (total_size * self.config.fee_pct)
+        
+        entry_time = pos.entry_time.replace(tzinfo=timezone.utc) if pos.entry_time.tzinfo is None else pos.entry_time
+        
+        trade = Trade(
+            symbol=symbol,
+            direction=pos.direction,
+            entry_price=avg,
+            exit_price=price,
+            entry_time=entry_time.strftime("%Y-%m-%d %H:%M:%S"),
+            exit_time=now.strftime("%Y-%m-%d %H:%M:%S"),
+            pnl_pct=round(pnl_pct, 4),
+            pnl_usd=round(pnl_usd, 4),
+            hold_seconds=int((now - entry_time).total_seconds()),
+            exit_reason=reason,
+            position_size=total_size,
+            num_dca_orders=pos.num_orders,
+            max_runup_pct=pos.max_runup_pct,
+            max_drawdown_pct=pos.max_drawdown_pct,
+            bars_held=pos.bars_held
+        )
+        
+        self.state.add_trade(trade)
+        del self.state.positions[symbol]
+        self.state.save()
+
+        emoji = "✅" if pnl_usd > 0 else "❌"
+        self.logger.info(
+            f"{emoji} EXIT: {symbol} {pos.direction.upper()} @ ${price:.4f} | "
+            f"PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%) | {reason}"
+        )
+        self.logger.info(f"   Stats: Runup: {pos.max_runup_pct:.2f}% | DD: {pos.max_drawdown_pct:.2f}% | Bars: {pos.bars_held}")
+
+    def _daily_report(self, date):
+        date_str = str(date)
+        trades = [t for t in self.state.trades if t.exit_time.startswith(date_str)]
+        if trades:
+            total = sum(t.pnl_usd for t in trades)
+            self.logger.info(f"📊 {date_str}: {len(trades)} trades | PnL: ${total:.2f}")
+
+    def _fmt_time(self, t: datetime) -> str:
+        return t.isoformat() if hasattr(t, 'isoformat') else str(t)
+
+    def _print_header(self):
+        c = self.config
+        print(f"\n{'═' * 70}")
+        print(f"  🚀 DEVIATION MAGNET - 24/7 FORWARD TEST (Class Mode)")
+        print(f"{'═' * 70}")
+        print(f"  Timeframe:      {c.timeframe}m")
+        print(f"  Symbols:        {len(self.symbols)}")
+        print(f"  DCA:            ${c.base_order_size} x {c.dca_scale} (Target: {c.profit_target_pct}%)")
+        print(f"  Log:            {c.log_file}")
+        print(f"{'═' * 70}\n", flush=True)
+
+    def _print_status(self):
+        # (Simplified version of previous print_status)
+        now = datetime.now(timezone.utc)
+        print(f"\n{'─' * 60}")
+        print(f"  ⏱  Active Positions: {len(self.state.positions)}")
+        for sym, pos in self.state.positions.items():
+            current = self.client.get_current_price(sym)
+            if current:
+                avg = pos.avg_entry_price
+                pnl = (current - avg)/avg*100 if pos.direction == "long" else (avg - current)/avg*100
+                print(f"      {sym:<10} {pos.direction:<5} {pnl:>+6.2f}% (Hold: {pos.bars_held} bars)")
+        
+        if self.state.trades:
+            total_pnl = sum(t.pnl_usd for t in self.state.trades)
+            print(f"  📈 Total PnL: ${total_pnl:.2f} ({len(self.state.trades)} trades)")
+        print(f"{'─' * 60}\n", flush=True)
 
 
 if __name__ == "__main__":
     try:
-        main()
+        bot = Bot()
+        bot.run()
     except Exception as e:
-        print(f"💥 Script crashed: {e}", flush=True)
+        print(f"💥 Critical Failure: {e}")
         traceback.print_exc()
-        raise
