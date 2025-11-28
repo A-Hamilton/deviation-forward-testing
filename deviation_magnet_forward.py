@@ -281,14 +281,14 @@ class TradingState:
         try:
             with open(self.config.state_file, "r") as f:
                 state_data = json.load(f)
-
+            
+            # LOAD POSITIONS
             for sym, data in state_data.get("positions", {}).items():
                 entry_time = datetime.fromisoformat(data["entry_time"])
                 if entry_time.tzinfo is None:
                     entry_time = entry_time.replace(tzinfo=timezone.utc)
                 
                 orders = data.get("orders", [])
-                # Migration logic for old format could go here if needed
                 
                 self.positions[sym] = Position(
                     symbol=data["symbol"],
@@ -301,15 +301,10 @@ class TradingState:
                     last_processed_bar=data.get("last_processed_bar"),
                 )
 
-            if state_data.get("start_time"):
-                start = datetime.fromisoformat(state_data["start_time"])
-                if start.tzinfo is None:
-                    start = start.replace(tzinfo=timezone.utc)
-                self.start_time = start
+            # IGNORE: start_time, total_signals, api_errors
+            # We want a fresh session look
+            # if state_data.get("start_time"): ...
                 
-            self.total_signals = state_data.get("total_signals", 0)
-            self.api_errors = state_data.get("api_errors", 0)
-
             self.logger.info(f"Restored {len(self.positions)} open positions")
         except Exception as e:
             self.logger.error(f"Failed to load state: {e}")
@@ -571,7 +566,7 @@ class Bot:
     def run(self):
         """Start the bot loop."""
         self.state.load()
-        # self.state.load_trades()  # Commented out to ignore historical trades on startup (Session Stats only)
+        # self.state.load_trades()  # DISABLED: Always start with 0 trades for fresh session stats
         self._print_header()
 
         self.logger.info("🔄 Starting main loop...")
