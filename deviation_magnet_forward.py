@@ -683,9 +683,21 @@ class Bot:
 
         if is_dca and symbol in self.state.positions:
             pos = self.state.positions[symbol]
-            scale_mult = self.config.dca_scale ** pos.num_orders
-            size = self.config.base_order_size * scale_mult
-            
+            # Previous Logic (Incorrect based on request):
+            # scale_mult = self.config.dca_scale ** pos.num_orders
+            # size = self.config.base_order_size * scale_mult
+
+            # New Logic: Size = Current Total Exposure
+            # This doubles the total exposure every time (if scale is 2.0)
+            # e.g. Base $10 (Exp $10) -> DCA $10 (Exp $20) -> DCA $20 (Exp $40) -> DCA $40 (Exp $80)
+            size = pos.total_size * (self.config.dca_scale - 1.0) 
+            # Note: For strict "doubling" (Scale 2.0), we add 100% of current size.
+            # If scale was 1.5, we would add 50% of current size (1.5 - 1.0).
+
+            # Fallback if somehow total_size is 0 (shouldn't happen)
+            if size <= 0:
+                size = self.config.base_order_size
+
             pos.orders.append({
                 "price": price,
                 "size": size,
@@ -774,18 +786,27 @@ class Bot:
         print(f"{'═' * 70}")
         print(f"  Timeframe:      {c.timeframe}m")
         print(f"  Symbols:        {len(self.symbols)}")
-        print(f"  DCA Config:     Base ${c.base_order_size} | Scale {c.dca_scale}x | Max {c.max_dca_orders} Orders")
+        print(f"  DCA Config:     Base ${c.base_order_size} | Scale {c.dca_scale}x (Target Exposure Doubling)")
         print(f"  Target Profit:  {c.profit_target_pct}%")
         print(f"  Outputs:        {c.trades_file.name}, {c.trades_csv.name}")
         
         # Show DCA Progression
         print(f"{'─' * 70}")
-        print(f"  DCA Progression Preview:")
-        total = 0.0
+        print(f"  DCA Progression Preview (Martingale):")
+        
+        # Calculate progression
+        current_exposure = c.base_order_size
+        print(f"    Base:    ${c.base_order_size:,.0f} (Total Exposure: ${current_exposure:,.0f})")
+        
         for i in range(min(5, c.max_dca_orders)):
-            size = c.base_order_size * (c.dca_scale ** i)
-            total += size
-            print(f"    Ord #{i+1}: ${size:,.0f} (Total Exposure: ${total:,.0f})")
+            # New size adds enough to reach (current * scale)
+            # If scale is 2.0, we double exposure. 
+            # Size needed = (current * 2.0) - current = current
+            next_size = current_exposure * (c.dca_scale - 1.0)
+            current_exposure += next_size
+            
+            print(f"    DCA #{i+1}:  ${next_size:,.0f} (Total Exposure: ${current_exposure:,.0f})")
+
         if c.max_dca_orders > 5:
             print(f"    ... up to {c.max_dca_orders} orders")
             
