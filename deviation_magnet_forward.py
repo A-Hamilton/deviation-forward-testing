@@ -316,6 +316,18 @@ class TradingState:
 
     def load_trades(self) -> None:
         """Load historical trades."""
+        # For new "clean slate" logic, we can just skip loading if user wants
+        # Or we can just log that we found them but start fresh.
+        # But to truly ignore them, we should rename/archive the old file.
+        # For now, let's keep the file but NOT load them into memory stats if a flag is set.
+        # However, simpler approach requested: "ignore these".
+        # Let's check an env var or just not load them if we want a fresh start.
+        
+        # ACTUALLY: The user asked to "ignore these". The cleanest way is to
+        # archive the current trades.json if it exists on startup, or just don't load.
+        # Let's modify this to load ONLY if we want persistence.
+        # Since this is a forward test, maybe we just want to see NEW trades.
+        
         if not self.config.trades_file.exists():
             return
 
