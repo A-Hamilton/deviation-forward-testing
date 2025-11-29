@@ -1,0 +1,394 @@
+2025-11-28 22:19:41 | INFO | 🔄 Starting main loop...
+2025-11-28 22:19:42 | INFO | Completed iteration 1
+2025-11-28 22:20:13 | INFO | Completed iteration 2
+2025-11-28 22:20:43 | INFO | Completed iteration 3
+2025-11-28 22:21:44 | INFO | Heartbeat: iter 5 | pos: 0
+2025-11-28 22:24:16 | INFO | Heartbeat: iter 10 | pos: 0
+2025-11-28 22:26:47 | INFO | Heartbeat: iter 15 | pos: 0
+2025-11-28 22:29:19 | INFO | Heartbeat: iter 20 | pos: 0
+2025-11-28 22:31:51 | INFO | Heartbeat: iter 25 | pos: 0
+2025-11-28 22:34:22 | INFO | Heartbeat: iter 30 | pos: 0
+2025-11-28 22:36:54 | INFO | Heartbeat: iter 35 | pos: 0
+2025-11-28 22:39:26 | INFO | Heartbeat: iter 40 | pos: 0
+2025-11-28 22:41:58 | INFO | Heartbeat: iter 45 | pos: 0
+2025-11-28 22:44:30 | INFO | Heartbeat: iter 50 | pos: 0
+2025-11-28 22:47:01 | INFO | Heartbeat: iter 55 | pos: 0
+2025-11-28 22:49:33 | INFO | Heartbeat: iter 60 | pos: 0
+2025-11-28 22:52:05 | INFO | Heartbeat: iter 65 | pos: 0
+2025-11-28 22:54:37 | INFO | Heartbeat: iter 70 | pos: 0
+2025-11-28 22:57:09 | INFO | Heartbeat: iter 75 | pos: 0
+2025-11-28 22:59:41 | INFO | Heartbeat: iter 80 | pos: 0
+2025-11-28 23:02:13 | INFO | Heartbeat: iter 85 | pos: 0
+2025-11-28 23:04:45 | INFO | Heartbeat: iter 90 | pos: 0
+2025-11-28 23:07:17 | INFO | Heartbeat: iter 95 | pos: 0
+2025-11-28 23:09:49 | INFO | Heartbeat: iter 100 | pos: 0
+2025-11-28 23:12:20 | INFO | Heartbeat: iter 105 | pos: 0
+2025-11-28 23:14:52 | INFO | Heartbeat: iter 110 | pos: 0
+2025-11-28 23:17:24 | INFO | Heartbeat: iter 115 | pos: 0
+2025-11-28 23:19:56 | INFO | Heartbeat: iter 120 | pos: 0
+2025-11-28 23:22:28 | INFO | Heartbeat: iter 125 | pos: 0
+2025-11-28 23:24:59 | INFO | Heartbeat: iter 130 | pos: 0
+2025-11-28 23:27:31 | INFO | Heartbeat: iter 135 | pos: 0
+2025-11-28 23:30:03 | INFO | Heartbeat: iter 140 | pos: 0
+2025-11-28 23:32:35 | INFO | Heartbeat: iter 145 | pos: 0
+2025-11-28 23:35:07 | INFO | Heartbeat: iter 150 | pos: 0
+2025-11-28 23:37:39 | INFO | Heartbeat: iter 155 | pos: 0
+2025-11-28 23:40:11 | INFO | Heartbeat: iter 160 | pos: 0
+2025-11-28 23:42:42 | INFO | Heartbeat: iter 165 | pos: 0
+2025-11-28 23:45:14 | INFO | Heartbeat: iter 170 | pos: 0
+2025-11-28 23:47:46 | INFO | Heartbeat: iter 175 | pos: 0
+2025-11-28 23:50:18 | INFO | Heartbeat: iter 180 | pos: 0
+2025-11-28 23:52:50 | INFO | Heartbeat: iter 185 | pos: 0
+2025-11-28 23:55:22 | INFO | Heartbeat: iter 190 | pos: 0
+2025-11-28 23:57:53 | INFO | Heartbeat: iter 195 | pos: 0
+2025-11-29 00:00:26 | INFO | Heartbeat: iter 200 | pos: 0
+2025-11-29 00:02:58 | INFO | Heartbeat: iter 205 | pos: 0
+2025-11-29 00:05:29 | INFO | Heartbeat: iter 210 | pos: 0
+2025-11-29 00:08:01 | INFO | Heartbeat: iter 215 | pos: 0
+2025-11-29 00:10:32 | INFO | Heartbeat: iter 220 | pos: 0
+2025-11-29 00:13:04 | INFO | Heartbeat: iter 225 | pos: 0
+2025-11-29 00:15:35 | INFO | Heartbeat: iter 230 | pos: 0
+2025-11-29 00:18:07 | INFO | Heartbeat: iter 235 | pos: 0
+2025-11-29 00:20:38 | INFO | Heartbeat: iter 240 | pos: 0
+2025-11-29 00:23:09 | INFO | Heartbeat: iter 245 | pos: 0
+2025-11-29 00:25:41 | INFO | Heartbeat: iter 250 | pos: 0
+2025-11-29 00:28:12 | INFO | Heartbeat: iter 255 | pos: 0
+2025-11-29 00:30:44 | INFO | Heartbeat: iter 260 | pos: 0
+2025-11-29 00:33:16 | INFO | Heartbeat: iter 265 | pos: 0
+2025-11-29 00:35:47 | INFO | Heartbeat: iter 270 | pos: 0
+2025-11-29 00:37:48 | INFO | 📥 ENTRY: ENAUSDT SHORT @ $0.2837 ($10)
+2025-11-29 00:38:19 | INFO | Heartbeat: iter 275 | pos: 1
+2025-11-29 00:39:50 | INFO | ✅ EXIT: ENAUSDT SHORT @ $0.2832 | PnL: $0.01 (0.18%) | profit_target
+2025-11-29 00:39:50 | INFO |    Stats: Runup: 0.18% | DD: -0.04% | Bars: 1
+2025-11-29 00:40:51 | INFO | Heartbeat: iter 280 | pos: 0
+2025-11-29 00:43:22 | INFO | Heartbeat: iter 285 | pos: 0
+2025-11-29 00:45:54 | INFO | Heartbeat: iter 290 | pos: 0
+2025-11-29 00:48:26 | INFO | Heartbeat: iter 295 | pos: 0
+2025-11-29 00:50:57 | INFO | Heartbeat: iter 300 | pos: 0
+2025-11-29 00:53:29 | INFO | Heartbeat: iter 305 | pos: 0
+2025-11-29 00:56:01 | INFO | Heartbeat: iter 310 | pos: 0
+2025-11-29 00:58:32 | INFO | Heartbeat: iter 315 | pos: 0
+2025-11-29 01:01:04 | INFO | Heartbeat: iter 320 | pos: 0
+2025-11-29 01:03:36 | INFO | Heartbeat: iter 325 | pos: 0
+2025-11-29 01:06:08 | INFO | Heartbeat: iter 330 | pos: 0
+2025-11-29 01:08:39 | INFO | Heartbeat: iter 335 | pos: 0
+2025-11-29 01:09:40 | INFO | 📥 ENTRY: ENAUSDT SHORT @ $0.2867 ($10)
+2025-11-29 01:11:11 | INFO | Heartbeat: iter 340 | pos: 1
+2025-11-29 01:13:43 | INFO | Heartbeat: iter 345 | pos: 1
+2025-11-29 01:14:43 | INFO | 📥 ENTRY: ETHUSDT SHORT @ $3046.3200 ($10)
+2025-11-29 01:16:14 | INFO | Heartbeat: iter 350 | pos: 2
+2025-11-29 01:18:46 | INFO | Heartbeat: iter 355 | pos: 2
+2025-11-29 01:20:18 | INFO | ✅ EXIT: ENAUSDT SHORT @ $0.2862 | PnL: $0.01 (0.17%) | profit_target
+2025-11-29 01:20:18 | INFO |    Stats: Runup: 0.17% | DD: -0.42% | Bars: 3
+2025-11-29 01:21:18 | INFO | Heartbeat: iter 360 | pos: 1
+2025-11-29 01:23:50 | INFO | Heartbeat: iter 365 | pos: 1
+2025-11-29 01:25:51 | INFO | ✅ EXIT: ETHUSDT SHORT @ $3042.9600 | PnL: $0.00 (0.11%) | profit_target
+2025-11-29 01:25:51 | INFO |    Stats: Runup: 0.11% | DD: -0.11% | Bars: 3
+2025-11-29 01:26:22 | INFO | Heartbeat: iter 370 | pos: 0
+2025-11-29 01:28:54 | INFO | Heartbeat: iter 375 | pos: 0
+2025-11-29 01:31:25 | INFO | Heartbeat: iter 380 | pos: 0
+2025-11-29 01:33:57 | INFO | Heartbeat: iter 385 | pos: 0
+2025-11-29 01:36:29 | INFO | Heartbeat: iter 390 | pos: 0
+2025-11-29 01:39:01 | INFO | Heartbeat: iter 395 | pos: 0
+2025-11-29 01:41:33 | INFO | Heartbeat: iter 400 | pos: 0
+2025-11-29 01:44:05 | INFO | Heartbeat: iter 405 | pos: 0
+2025-11-29 01:46:37 | INFO | Heartbeat: iter 410 | pos: 0
+2025-11-29 01:49:09 | INFO | Heartbeat: iter 415 | pos: 0
+2025-11-29 01:51:41 | INFO | Heartbeat: iter 420 | pos: 0
+2025-11-29 01:54:13 | INFO | Heartbeat: iter 425 | pos: 0
+2025-11-29 01:56:45 | INFO | Heartbeat: iter 430 | pos: 0
+2025-11-29 01:59:17 | INFO | Heartbeat: iter 435 | pos: 0
+2025-11-29 02:01:48 | INFO | Heartbeat: iter 440 | pos: 0
+2025-11-29 02:04:20 | INFO | Heartbeat: iter 445 | pos: 0
+2025-11-29 02:06:52 | INFO | Heartbeat: iter 450 | pos: 0
+2025-11-29 02:09:24 | INFO | Heartbeat: iter 455 | pos: 0
+2025-11-29 02:11:56 | INFO | Heartbeat: iter 460 | pos: 0
+2025-11-29 02:14:28 | INFO | Heartbeat: iter 465 | pos: 0
+2025-11-29 02:17:00 | INFO | Heartbeat: iter 470 | pos: 0
+2025-11-29 02:19:31 | INFO | Heartbeat: iter 475 | pos: 0
+2025-11-29 02:22:03 | INFO | Heartbeat: iter 480 | pos: 0
+2025-11-29 02:24:35 | INFO | Heartbeat: iter 485 | pos: 0
+2025-11-29 02:27:07 | INFO | Heartbeat: iter 490 | pos: 0
+2025-11-29 02:29:39 | INFO | Heartbeat: iter 495 | pos: 0
+2025-11-29 02:32:11 | INFO | Heartbeat: iter 500 | pos: 0
+2025-11-29 02:34:43 | INFO | Heartbeat: iter 505 | pos: 0
+2025-11-29 02:37:15 | INFO | Heartbeat: iter 510 | pos: 0
+2025-11-29 02:39:47 | INFO | Heartbeat: iter 515 | pos: 0
+2025-11-29 02:42:19 | INFO | Heartbeat: iter 520 | pos: 0
+2025-11-29 02:44:51 | INFO | Heartbeat: iter 525 | pos: 0
+2025-11-29 02:47:23 | INFO | Heartbeat: iter 530 | pos: 0
+2025-11-29 02:49:55 | INFO | Heartbeat: iter 535 | pos: 0
+2025-11-29 02:52:27 | INFO | Heartbeat: iter 540 | pos: 0
+2025-11-29 02:54:58 | INFO | Heartbeat: iter 545 | pos: 0
+2025-11-29 02:57:30 | INFO | Heartbeat: iter 550 | pos: 0
+2025-11-29 03:00:02 | INFO | Heartbeat: iter 555 | pos: 0
+2025-11-29 03:02:34 | INFO | Heartbeat: iter 560 | pos: 0
+2025-11-29 03:05:06 | INFO | Heartbeat: iter 565 | pos: 0
+2025-11-29 03:07:38 | INFO | Heartbeat: iter 570 | pos: 0
+2025-11-29 03:10:10 | INFO | Heartbeat: iter 575 | pos: 0
+2025-11-29 03:12:42 | INFO | Heartbeat: iter 580 | pos: 0
+2025-11-29 03:15:14 | INFO | Heartbeat: iter 585 | pos: 0
+2025-11-29 03:17:46 | INFO | Heartbeat: iter 590 | pos: 0
+2025-11-29 03:20:18 | INFO | Heartbeat: iter 595 | pos: 0
+2025-11-29 03:22:49 | INFO | Heartbeat: iter 600 | pos: 0
+2025-11-29 03:25:21 | INFO | Heartbeat: iter 605 | pos: 0
+2025-11-29 03:27:53 | INFO | Heartbeat: iter 610 | pos: 0
+2025-11-29 03:30:25 | INFO | Heartbeat: iter 615 | pos: 0
+2025-11-29 03:32:57 | INFO | Heartbeat: iter 620 | pos: 0
+2025-11-29 03:35:29 | INFO | Heartbeat: iter 625 | pos: 0
+2025-11-29 03:38:01 | INFO | Heartbeat: iter 630 | pos: 0
+2025-11-29 03:40:33 | INFO | Heartbeat: iter 635 | pos: 0
+2025-11-29 03:43:05 | INFO | Heartbeat: iter 640 | pos: 0
+2025-11-29 03:45:36 | INFO | Heartbeat: iter 645 | pos: 0
+2025-11-29 03:48:08 | INFO | Heartbeat: iter 650 | pos: 0
+2025-11-29 03:50:40 | INFO | Heartbeat: iter 655 | pos: 0
+2025-11-29 03:53:12 | INFO | Heartbeat: iter 660 | pos: 0
+2025-11-29 03:55:44 | INFO | Heartbeat: iter 665 | pos: 0
+2025-11-29 03:58:16 | INFO | Heartbeat: iter 670 | pos: 0
+2025-11-29 04:00:48 | INFO | Heartbeat: iter 675 | pos: 0
+2025-11-29 04:03:19 | INFO | Heartbeat: iter 680 | pos: 0
+2025-11-29 04:05:51 | INFO | Heartbeat: iter 685 | pos: 0
+2025-11-29 04:08:24 | INFO | Heartbeat: iter 690 | pos: 0
+2025-11-29 04:10:56 | INFO | Heartbeat: iter 695 | pos: 0
+2025-11-29 04:13:27 | INFO | Heartbeat: iter 700 | pos: 0
+2025-11-29 04:15:59 | INFO | Heartbeat: iter 705 | pos: 0
+2025-11-29 04:18:31 | INFO | Heartbeat: iter 710 | pos: 0
+2025-11-29 04:21:04 | INFO | Heartbeat: iter 715 | pos: 0
+2025-11-29 04:23:36 | INFO | Heartbeat: iter 720 | pos: 0
+2025-11-29 04:26:08 | INFO | Heartbeat: iter 725 | pos: 0
+2025-11-29 04:28:40 | INFO | Heartbeat: iter 730 | pos: 0
+2025-11-29 04:31:12 | INFO | Heartbeat: iter 735 | pos: 0
+2025-11-29 04:33:43 | INFO | Heartbeat: iter 740 | pos: 0
+2025-11-29 04:36:15 | INFO | Heartbeat: iter 745 | pos: 0
+2025-11-29 04:38:48 | INFO | Heartbeat: iter 750 | pos: 0
+2025-11-29 04:41:20 | INFO | Heartbeat: iter 755 | pos: 0
+2025-11-29 04:43:52 | INFO | Heartbeat: iter 760 | pos: 0
+2025-11-29 04:46:24 | INFO | Heartbeat: iter 765 | pos: 0
+2025-11-29 04:48:56 | INFO | Heartbeat: iter 770 | pos: 0
+2025-11-29 04:51:28 | INFO | Heartbeat: iter 775 | pos: 0
+2025-11-29 04:54:00 | INFO | Heartbeat: iter 780 | pos: 0
+2025-11-29 04:56:32 | INFO | Heartbeat: iter 785 | pos: 0
+2025-11-29 04:59:04 | INFO | Heartbeat: iter 790 | pos: 0
+2025-11-29 05:01:37 | INFO | Heartbeat: iter 795 | pos: 0
+2025-11-29 05:04:09 | INFO | Heartbeat: iter 800 | pos: 0
+2025-11-29 05:06:41 | INFO | Heartbeat: iter 805 | pos: 0
+2025-11-29 05:09:13 | INFO | Heartbeat: iter 810 | pos: 0
+2025-11-29 05:11:45 | INFO | Heartbeat: iter 815 | pos: 0
+2025-11-29 05:14:17 | INFO | Heartbeat: iter 820 | pos: 0
+2025-11-29 05:16:49 | INFO | Heartbeat: iter 825 | pos: 0
+2025-11-29 05:19:22 | INFO | Heartbeat: iter 830 | pos: 0
+2025-11-29 05:21:54 | INFO | Heartbeat: iter 835 | pos: 0
+2025-11-29 05:24:26 | INFO | Heartbeat: iter 840 | pos: 0
+2025-11-29 05:26:58 | INFO | Heartbeat: iter 845 | pos: 0
+2025-11-29 05:29:30 | INFO | Heartbeat: iter 850 | pos: 0
+2025-11-29 05:32:02 | INFO | Heartbeat: iter 855 | pos: 0
+2025-11-29 05:34:34 | INFO | Heartbeat: iter 860 | pos: 0
+2025-11-29 05:37:06 | INFO | Heartbeat: iter 865 | pos: 0
+2025-11-29 05:39:38 | INFO | Heartbeat: iter 870 | pos: 0
+2025-11-29 05:42:10 | INFO | Heartbeat: iter 875 | pos: 0
+2025-11-29 05:44:42 | INFO | Heartbeat: iter 880 | pos: 0
+2025-11-29 05:47:14 | INFO | Heartbeat: iter 885 | pos: 0
+2025-11-29 05:49:46 | INFO | Heartbeat: iter 890 | pos: 0
+2025-11-29 05:52:18 | INFO | Heartbeat: iter 895 | pos: 0
+2025-11-29 05:54:50 | INFO | Heartbeat: iter 900 | pos: 0
+2025-11-29 05:57:22 | INFO | Heartbeat: iter 905 | pos: 0
+2025-11-29 05:59:54 | INFO | Heartbeat: iter 910 | pos: 0
+2025-11-29 06:02:26 | INFO | Heartbeat: iter 915 | pos: 0
+2025-11-29 06:04:58 | INFO | Heartbeat: iter 920 | pos: 0
+2025-11-29 06:07:30 | INFO | Heartbeat: iter 925 | pos: 0
+2025-11-29 06:10:04 | INFO | Heartbeat: iter 930 | pos: 0
+2025-11-29 06:12:36 | INFO | Heartbeat: iter 935 | pos: 0
+2025-11-29 06:15:08 | INFO | Heartbeat: iter 940 | pos: 0
+2025-11-29 06:17:40 | INFO | Heartbeat: iter 945 | pos: 0
+2025-11-29 06:20:12 | INFO | Heartbeat: iter 950 | pos: 0
+2025-11-29 06:21:43 | INFO | 📥 ENTRY: BTCUSDT LONG @ $90378.5000 ($10)
+2025-11-29 06:21:43 | INFO | 📥 ENTRY: ETHUSDT LONG @ $3015.0400 ($10)
+2025-11-29 06:21:43 | INFO | 📥 ENTRY: DOTUSDT LONG @ $2.2685 ($10)
+2025-11-29 06:21:43 | INFO | 📥 ENTRY: ARBUSDT LONG @ $0.2159 ($10)
+2025-11-29 06:21:43 | INFO | 📥 ENTRY: SEIUSDT LONG @ $0.1362 ($10)
+2025-11-29 06:22:44 | INFO | Heartbeat: iter 955 | pos: 5
+2025-11-29 06:23:45 | INFO | ✅ EXIT: SEIUSDT LONG @ $0.1364 | PnL: $0.00 (0.15%) | profit_target
+2025-11-29 06:23:45 | INFO |    Stats: Runup: 0.15% | DD: 0.00% | Bars: 1
+2025-11-29 06:24:15 | INFO | ❌ EXIT: DOTUSDT LONG @ $2.2708 | PnL: $-0.00 (0.10%) | profit_target
+2025-11-29 06:24:15 | INFO |    Stats: Runup: 0.10% | DD: -0.03% | Bars: 1
+2025-11-29 06:25:16 | INFO | Heartbeat: iter 960 | pos: 3
+2025-11-29 06:26:17 | INFO | ✅ EXIT: BTCUSDT LONG @ $90516.7000 | PnL: $0.00 (0.15%) | profit_target
+2025-11-29 06:26:17 | INFO |    Stats: Runup: 0.15% | DD: 0.00% | Bars: 2
+2025-11-29 06:26:48 | INFO | ✅ EXIT: ARBUSDT LONG @ $0.2163 | PnL: $0.01 (0.19%) | profit_target
+2025-11-29 06:26:48 | INFO |    Stats: Runup: 0.19% | DD: -0.05% | Bars: 2
+2025-11-29 06:27:48 | INFO | Heartbeat: iter 965 | pos: 1
+2025-11-29 06:30:21 | INFO | Heartbeat: iter 970 | pos: 1
+2025-11-29 06:32:53 | INFO | Heartbeat: iter 975 | pos: 1
+2025-11-29 06:35:25 | INFO | Heartbeat: iter 980 | pos: 1
+2025-11-29 06:37:57 | INFO | Heartbeat: iter 985 | pos: 1
+2025-11-29 06:40:29 | INFO | Heartbeat: iter 990 | pos: 1
+2025-11-29 06:43:01 | INFO | Heartbeat: iter 995 | pos: 1
+2025-11-29 06:45:33 | INFO | Heartbeat: iter 1000 | pos: 1
+2025-11-29 06:48:05 | INFO | Heartbeat: iter 1005 | pos: 1
+2025-11-29 06:50:37 | INFO | Heartbeat: iter 1010 | pos: 1
+2025-11-29 06:53:09 | INFO | Heartbeat: iter 1015 | pos: 1
+2025-11-29 06:55:41 | INFO | Heartbeat: iter 1020 | pos: 1
+2025-11-29 06:58:13 | INFO | Heartbeat: iter 1025 | pos: 1
+2025-11-29 07:00:45 | INFO | Heartbeat: iter 1030 | pos: 1
+2025-11-29 07:03:17 | INFO | Heartbeat: iter 1035 | pos: 1
+2025-11-29 07:05:50 | INFO | Heartbeat: iter 1040 | pos: 1
+2025-11-29 07:08:22 | INFO | Heartbeat: iter 1045 | pos: 1
+2025-11-29 07:10:54 | INFO | Heartbeat: iter 1050 | pos: 1
+2025-11-29 07:13:26 | INFO | Heartbeat: iter 1055 | pos: 1
+2025-11-29 07:15:58 | INFO | Heartbeat: iter 1060 | pos: 1
+2025-11-29 07:18:30 | INFO | Heartbeat: iter 1065 | pos: 1
+2025-11-29 07:21:03 | INFO | Heartbeat: iter 1070 | pos: 1
+2025-11-29 07:23:35 | INFO | Heartbeat: iter 1075 | pos: 1
+2025-11-29 07:26:07 | INFO | Heartbeat: iter 1080 | pos: 1
+2025-11-29 07:28:39 | INFO | Heartbeat: iter 1085 | pos: 1
+2025-11-29 07:31:11 | INFO | Heartbeat: iter 1090 | pos: 1
+2025-11-29 07:33:43 | INFO | Heartbeat: iter 1095 | pos: 1
+2025-11-29 07:36:15 | INFO | Heartbeat: iter 1100 | pos: 1
+2025-11-29 07:38:47 | INFO | Heartbeat: iter 1105 | pos: 1
+2025-11-29 07:41:19 | INFO | Heartbeat: iter 1110 | pos: 1
+2025-11-29 07:43:51 | INFO | Heartbeat: iter 1115 | pos: 1
+2025-11-29 07:46:24 | INFO | Heartbeat: iter 1120 | pos: 1
+2025-11-29 07:48:56 | INFO | Heartbeat: iter 1125 | pos: 1
+2025-11-29 07:51:28 | INFO | Heartbeat: iter 1130 | pos: 1
+2025-11-29 07:54:00 | INFO | Heartbeat: iter 1135 | pos: 1
+2025-11-29 07:56:32 | INFO | Heartbeat: iter 1140 | pos: 1
+2025-11-29 07:59:04 | INFO | Heartbeat: iter 1145 | pos: 1
+2025-11-29 08:00:05 | WARNING | API error BTCUSDT: Too many visits. Exceeded the API Rate Limit.
+2025-11-29 08:00:05 | WARNING | API error XRPUSDT: Too many visits. Exceeded the API Rate Limit.
+2025-11-29 08:00:05 | WARNING | API error LINKUSDT: Too many visits. Exceeded the API Rate Limit.
+2025-11-29 08:00:05 | WARNING | API error 1000PEPEUSDT: Too many visits. Exceeded the API Rate Limit.
+2025-11-29 08:00:05 | WARNING | API error STXUSDT: Too many visits. Exceeded the API Rate Limit.
+2025-11-29 08:01:37 | INFO | Heartbeat: iter 1150 | pos: 1
+2025-11-29 08:04:09 | INFO | Heartbeat: iter 1155 | pos: 1
+2025-11-29 08:06:41 | INFO | Heartbeat: iter 1160 | pos: 1
+2025-11-29 08:09:13 | INFO | Heartbeat: iter 1165 | pos: 1
+2025-11-29 08:11:45 | INFO | Heartbeat: iter 1170 | pos: 1
+2025-11-29 08:14:17 | INFO | Heartbeat: iter 1175 | pos: 1
+2025-11-29 08:16:49 | INFO | Heartbeat: iter 1180 | pos: 1
+2025-11-29 08:19:20 | INFO | Heartbeat: iter 1185 | pos: 1
+2025-11-29 08:21:52 | INFO | ❌ EXIT: ETHUSDT LONG @ $3006.7100 | PnL: $-0.04 (-0.28%) | max_hold
+2025-11-29 08:21:52 | INFO |    Stats: Runup: 0.04% | DD: -0.72% | Bars: 25
+2025-11-29 08:21:53 | INFO | Heartbeat: iter 1190 | pos: 0
+2025-11-29 08:24:25 | INFO | Heartbeat: iter 1195 | pos: 0
+2025-11-29 08:26:57 | INFO | Heartbeat: iter 1200 | pos: 0
+2025-11-29 08:29:29 | INFO | Heartbeat: iter 1205 | pos: 0
+2025-11-29 08:32:01 | INFO | Heartbeat: iter 1210 | pos: 0
+2025-11-29 08:34:33 | INFO | Heartbeat: iter 1215 | pos: 0
+2025-11-29 08:37:05 | INFO | Heartbeat: iter 1220 | pos: 0
+2025-11-29 08:39:37 | INFO | Heartbeat: iter 1225 | pos: 0
+2025-11-29 08:41:39 | INFO | 📥 ENTRY: APTUSDT LONG @ $2.0890 ($10)
+2025-11-29 08:42:09 | INFO | Heartbeat: iter 1230 | pos: 1
+2025-11-29 08:42:40 | INFO | ✅ EXIT: APTUSDT LONG @ $2.0920 | PnL: $0.00 (0.14%) | profit_target
+2025-11-29 08:42:40 | INFO |    Stats: Runup: 0.14% | DD: -0.34% | Bars: 1
+2025-11-29 08:44:41 | INFO | Heartbeat: iter 1235 | pos: 0
+2025-11-29 08:47:13 | INFO | Heartbeat: iter 1240 | pos: 0
+2025-11-29 08:49:45 | INFO | Heartbeat: iter 1245 | pos: 0
+2025-11-29 08:52:17 | INFO | Heartbeat: iter 1250 | pos: 0
+2025-11-29 08:54:49 | INFO | Heartbeat: iter 1255 | pos: 0
+2025-11-29 08:57:21 | INFO | Heartbeat: iter 1260 | pos: 0
+2025-11-29 08:59:53 | INFO | Heartbeat: iter 1265 | pos: 0
+2025-11-29 09:02:25 | INFO | Heartbeat: iter 1270 | pos: 0
+2025-11-29 09:04:57 | INFO | Heartbeat: iter 1275 | pos: 0
+2025-11-29 09:07:29 | INFO | Heartbeat: iter 1280 | pos: 0
+2025-11-29 09:10:02 | INFO | Heartbeat: iter 1285 | pos: 0
+2025-11-29 09:12:34 | INFO | Heartbeat: iter 1290 | pos: 0
+2025-11-29 09:15:06 | INFO | Heartbeat: iter 1295 | pos: 0
+2025-11-29 09:17:38 | INFO | Heartbeat: iter 1300 | pos: 0
+2025-11-29 09:20:10 | INFO | Heartbeat: iter 1305 | pos: 0
+2025-11-29 09:22:42 | INFO | Heartbeat: iter 1310 | pos: 0
+2025-11-29 09:25:14 | INFO | Heartbeat: iter 1315 | pos: 0
+2025-11-29 09:27:47 | INFO | Heartbeat: iter 1320 | pos: 0
+2025-11-29 09:30:19 | INFO | Heartbeat: iter 1325 | pos: 0
+2025-11-29 09:32:51 | INFO | Heartbeat: iter 1330 | pos: 0
+2025-11-29 09:35:23 | INFO | Heartbeat: iter 1335 | pos: 0
+2025-11-29 09:37:55 | INFO | Heartbeat: iter 1340 | pos: 0
+2025-11-29 09:40:27 | INFO | Heartbeat: iter 1345 | pos: 0
+2025-11-29 09:42:59 | INFO | Heartbeat: iter 1350 | pos: 0
+2025-11-29 09:45:31 | INFO | Heartbeat: iter 1355 | pos: 0
+2025-11-29 09:48:03 | INFO | Heartbeat: iter 1360 | pos: 0
+2025-11-29 09:50:35 | INFO | Heartbeat: iter 1365 | pos: 0
+2025-11-29 09:53:07 | INFO | Heartbeat: iter 1370 | pos: 0
+2025-11-29 09:55:39 | INFO | Heartbeat: iter 1375 | pos: 0
+2025-11-29 09:58:11 | INFO | Heartbeat: iter 1380 | pos: 0
+2025-11-29 10:00:43 | INFO | Heartbeat: iter 1385 | pos: 0
+2025-11-29 10:03:15 | INFO | Heartbeat: iter 1390 | pos: 0
+2025-11-29 10:05:47 | INFO | Heartbeat: iter 1395 | pos: 0
+2025-11-29 10:08:19 | INFO | Heartbeat: iter 1400 | pos: 0
+2025-11-29 10:10:51 | INFO | Heartbeat: iter 1405 | pos: 0
+2025-11-29 10:13:23 | INFO | Heartbeat: iter 1410 | pos: 0
+2025-11-29 10:15:55 | INFO | Heartbeat: iter 1415 | pos: 0
+2025-11-29 10:18:27 | INFO | Heartbeat: iter 1420 | pos: 0
+2025-11-29 10:18:57 | INFO | 📥 ENTRY: DOGEUSDT LONG @ $0.1487 ($10)
+2025-11-29 10:19:58 | INFO | 📥 ENTRY: DOTUSDT LONG @ $2.2583 ($10)
+2025-11-29 10:19:58 | INFO | 📥 ENTRY: POLUSDT LONG @ $0.1338 ($10)
+2025-11-29 10:21:00 | INFO | Heartbeat: iter 1425 | pos: 3
+2025-11-29 10:22:31 | INFO | ❌ EXIT: DOTUSDT LONG @ $2.2607 | PnL: $-0.00 (0.11%) | profit_target
+2025-11-29 10:22:31 | INFO |    Stats: Runup: 0.11% | DD: -0.11% | Bars: 1
+2025-11-29 10:23:32 | INFO | ✅ EXIT: POLUSDT LONG @ $0.1341 | PnL: $0.01 (0.22%) | profit_target
+2025-11-29 10:23:32 | INFO |    Stats: Runup: 0.22% | DD: -0.07% | Bars: 1
+2025-11-29 10:23:32 | INFO | 📥 ENTRY: JUPUSDT SHORT @ $0.2454 ($10)
+2025-11-29 10:23:32 | INFO | Heartbeat: iter 1430 | pos: 2
+2025-11-29 10:25:03 | INFO | ✅ EXIT: DOGEUSDT LONG @ $0.1489 | PnL: $0.00 (0.13%) | profit_target
+2025-11-29 10:25:03 | INFO |    Stats: Runup: 0.13% | DD: -0.09% | Bars: 3
+2025-11-29 10:26:04 | INFO | 📥 ENTRY: OPUSDT SHORT @ $0.3288 ($10)
+2025-11-29 10:26:04 | INFO | 📥 DCA #2: JUPUSDT SHORT @ $0.2458 (+$20, total: $30) | Avg: $0.2457
+2025-11-29 10:26:04 | INFO | Heartbeat: iter 1435 | pos: 2
+2025-11-29 10:28:36 | INFO | Heartbeat: iter 1440 | pos: 2
+2025-11-29 10:29:06 | INFO | 📥 ENTRY: LINKUSDT SHORT @ $13.1170 ($10)
+2025-11-29 10:29:06 | INFO | 📥 ENTRY: TAOUSDT SHORT @ $298.3100 ($10)
+2025-11-29 10:29:37 | INFO | 📥 ENTRY: ADAUSDT SHORT @ $0.4164 ($10)
+2025-11-29 10:29:37 | INFO | 📥 ENTRY: ARBUSDT SHORT @ $0.2157 ($10)
+2025-11-29 10:29:37 | INFO | 📥 ENTRY: ATOMUSDT SHORT @ $2.4180 ($10)
+2025-11-29 10:29:37 | INFO | 📥 ENTRY: WIFUSDT SHORT @ $0.3756 ($10)
+2025-11-29 10:30:07 | INFO | ✅ EXIT: ARBUSDT SHORT @ $0.2154 | PnL: $0.00 (0.14%) | profit_target
+2025-11-29 10:30:07 | INFO |    Stats: Runup: 0.14% | DD: 0.00% | Bars: 1
+2025-11-29 10:30:07 | INFO | ✅ EXIT: ATOMUSDT SHORT @ $2.4150 | PnL: $0.00 (0.12%) | profit_target
+2025-11-29 10:30:07 | INFO |    Stats: Runup: 0.12% | DD: 0.00% | Bars: 1
+2025-11-29 10:30:07 | INFO | ✅ EXIT: WIFUSDT SHORT @ $0.3751 | PnL: $0.00 (0.13%) | profit_target
+2025-11-29 10:30:07 | INFO |    Stats: Runup: 0.13% | DD: 0.00% | Bars: 1
+2025-11-29 10:30:37 | INFO | ❌ EXIT: TAOUSDT SHORT @ $297.9900 | PnL: $-0.00 (0.11%) | profit_target
+2025-11-29 10:30:37 | INFO |    Stats: Runup: 0.11% | DD: -0.00% | Bars: 2
+2025-11-29 10:31:08 | INFO | Heartbeat: iter 1445 | pos: 4
+2025-11-29 10:33:40 | INFO | Heartbeat: iter 1450 | pos: 4
+2025-11-29 10:36:12 | INFO | Heartbeat: iter 1455 | pos: 4
+2025-11-29 10:38:44 | INFO | Heartbeat: iter 1460 | pos: 4
+2025-11-29 10:41:16 | INFO | Heartbeat: iter 1465 | pos: 4
+2025-11-29 10:43:48 | INFO | Heartbeat: iter 1470 | pos: 4
+2025-11-29 10:46:20 | INFO | Heartbeat: iter 1475 | pos: 4
+2025-11-29 10:48:52 | INFO | Heartbeat: iter 1480 | pos: 4
+2025-11-29 10:51:24 | INFO | Heartbeat: iter 1485 | pos: 4
+2025-11-29 10:53:57 | INFO | Heartbeat: iter 1490 | pos: 4
+2025-11-29 10:56:29 | INFO | Heartbeat: iter 1495 | pos: 4
+2025-11-29 10:59:01 | INFO | Heartbeat: iter 1500 | pos: 4
+2025-11-29 11:01:34 | INFO | Heartbeat: iter 1505 | pos: 4
+2025-11-29 11:04:06 | INFO | Heartbeat: iter 1510 | pos: 4
+2025-11-29 11:06:38 | INFO | Heartbeat: iter 1515 | pos: 4
+2025-11-29 11:07:09 | INFO | ✅ EXIT: ADAUSDT SHORT @ $0.4159 | PnL: $0.00 (0.12%) | profit_target
+2025-11-29 11:07:09 | INFO |    Stats: Runup: 0.12% | DD: -0.22% | Bars: 8
+2025-11-29 11:07:09 | INFO | ✅ EXIT: LINKUSDT SHORT @ $13.0990 | PnL: $0.00 (0.14%) | profit_target
+2025-11-29 11:07:09 | INFO |    Stats: Runup: 0.14% | DD: -0.18% | Bars: 9
+2025-11-29 11:09:10 | INFO | Heartbeat: iter 1520 | pos: 2
+2025-11-29 11:11:43 | INFO | Heartbeat: iter 1525 | pos: 2
+2025-11-29 11:14:14 | INFO | Heartbeat: iter 1530 | pos: 2
+2025-11-29 11:16:46 | INFO | Heartbeat: iter 1535 | pos: 2
+2025-11-29 11:19:19 | INFO | Heartbeat: iter 1540 | pos: 2
+2025-11-29 11:21:50 | INFO | Heartbeat: iter 1545 | pos: 2
+2025-11-29 11:24:23 | INFO | Heartbeat: iter 1550 | pos: 2
+2025-11-29 11:26:55 | INFO | Heartbeat: iter 1555 | pos: 2
+2025-11-29 11:29:27 | INFO | Heartbeat: iter 1560 | pos: 2
+2025-11-29 11:31:59 | INFO | Heartbeat: iter 1565 | pos: 2
+2025-11-29 11:34:31 | INFO | Heartbeat: iter 1570 | pos: 2
+2025-11-29 11:37:03 | INFO | Heartbeat: iter 1575 | pos: 2
+2025-11-29 11:39:35 | INFO | Heartbeat: iter 1580 | pos: 2
+2025-11-29 11:42:07 | INFO | Heartbeat: iter 1585 | pos: 2
+2025-11-29 11:44:39 | INFO | Heartbeat: iter 1590 | pos: 2
+2025-11-29 11:47:11 | INFO | Heartbeat: iter 1595 | pos: 2
+2025-11-29 11:49:43 | INFO | Heartbeat: iter 1600 | pos: 2
+2025-11-29 11:52:15 | INFO | Heartbeat: iter 1605 | pos: 2
+2025-11-29 11:54:47 | INFO | Heartbeat: iter 1610 | pos: 2
+2025-11-29 11:57:19 | INFO | Heartbeat: iter 1615 | pos: 2
+2025-11-29 11:59:05 | INFO | Stopping... saving state
+2025-11-29 12:01:08 | INFO | Restored 2 open positions
+2025-11-29 12:01:08 | INFO | 🔄 Starting main loop...
+2025-11-29 12:01:09 | INFO | Completed iteration 1
+2025-11-29 12:01:10 | INFO | Stopping... saving state

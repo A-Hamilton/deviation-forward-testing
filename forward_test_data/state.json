@@ -1,0 +1,47 @@
+{
+  "positions": {
+    "JUPUSDT": {
+      "symbol": "JUPUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.2454,
+          "size": 10.0,
+          "time": "2025-11-29T10:23:32.214861+00:00",
+          "bar_time": "2025-11-29T10:20:00"
+        },
+        {
+          "price": 0.2458,
+          "size": 20.0,
+          "time": "2025-11-29T10:26:04.324892+00:00",
+          "bar_time": "2025-11-29T10:25:00"
+        }
+      ],
+      "entry_time": "2025-11-29T10:23:32.214861+00:00",
+      "max_runup_pct": 0.040749796251025566,
+      "max_drawdown_pct": -0.909090909090922,
+      "bars_held": 21,
+      "last_processed_bar": "2025-11-29T12:00:00"
+    },
+    "OPUSDT": {
+      "symbol": "OPUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.3288,
+          "size": 10.0,
+          "time": "2025-11-29T10:26:04.254466+00:00",
+          "bar_time": "2025-11-29T10:25:00"
+        }
+      ],
+      "entry_time": "2025-11-29T10:26:04.254466+00:00",
+      "max_runup_pct": 0.09124087591239871,
+      "max_drawdown_pct": -1.1253041362530525,
+      "bars_held": 20,
+      "last_processed_bar": "2025-11-29T12:00:00"
+    }
+  },
+  "start_time": "2025-11-29T12:01:08.790368+00:00",
+  "total_signals": 0,
+  "api_errors": 0
+}
