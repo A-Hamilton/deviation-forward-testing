@@ -18,14 +18,15 @@ import sys
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
+from threading import Lock, Thread
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Any
 
 import pandas as pd
 import requests
+from pybit.unified_trading import HTTP, WebSocket
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -41,11 +42,11 @@ class Config:
     dev_mult: float = 1.5
 
     # Timing
-    timeframe: str = field(default_factory=lambda: os.environ.get("TIMEFRAME", "5"))
-    check_interval: int = 30
+    timeframe: str = field(default_factory=lambda: os.environ.get("TIMEFRAME", "1"))  # Changed to 1m
+    check_interval: int = 30  # Keep for status/cleanup, but not for trading loop
     
     # Parallel processing
-    max_workers: int = 5
+    max_workers: int = 10  # Increased for faster REST init
 
     # Position management
     base_order_size: float = field(default_factory=lambda: float(os.environ.get("BASE_ORDER_SIZE", "10.0")))
@@ -389,66 +390,66 @@ class TradingState:
 
 
 class BybitClient:
-    """Handles API interactions."""
+    """Handles API interactions via Pybit and WebSockets."""
 
     def __init__(self, config: Config, state: TradingState):
         self.config = config
         self.state = state
         self.logger = logging.getLogger("deviation_magnet")
-        self.session = requests.Session()
+        
+        # REST session for initial data
+        self.session = HTTP(testnet=False)
+        
+        # WebSocket for real-time updates (Public Linear)
+        self.ws = WebSocket(
+            testnet=False,
+            channel_type="linear",
+        )
+        self.data_buffer: Dict[str, pd.DataFrame] = {}
+        self.data_lock = Lock()
 
-    def fetch_klines(self, symbol: str, limit: int = 250) -> Optional[pd.DataFrame]:
-        url = "https://api.bybit.com/v5/market/kline"
-        params = {
-            "category": "linear",
-            "symbol": symbol,
-            "interval": self.config.timeframe,
-            "limit": limit,
-        }
+    def fetch_history_rest(self, symbol: str, limit: int = 250) -> Optional[pd.DataFrame]:
+        """Initial fetch of historical candles."""
+        try:
+            resp = self.session.get_kline(
+                category="linear",
+                symbol=symbol,
+                interval=self.config.timeframe,
+                limit=limit,
+            )
+            
+            if resp["retCode"] != 0 or not resp.get("result", {}).get("list"):
+                return None
 
-        for attempt in range(self.config.api_retries):
-            try:
-                resp = self.session.get(url, params=params, timeout=10)
-                resp.raise_for_status()
-                data = resp.json()
+            # Pybit returns list of strings, convert to DF
+            # Data format: [startTime, open, high, low, close, volume, turnover]
+            # List is reversed (latest first), similar to REST logic
+            raw_data = resp["result"]["list"]
+            
+            df = pd.DataFrame(
+                raw_data,
+                columns=["open_time", "open", "high", "low", "close", "volume", "turnover"],
+            )
+            # Pybit returns strings, convert types
+            df["open_time"] = pd.to_datetime(df["open_time"].astype(int), unit="ms")
+            for col in ["open", "high", "low", "close"]:
+                df[col] = df[col].astype(float)
+            
+            # Sort chronological (oldest -> newest) for indicator calc
+            df = df.sort_values("open_time").reset_index(drop=True)
+            return df
 
-                if data["retCode"] != 0:
-                    self.logger.warning(f"API error {symbol}: {data.get('retMsg')}")
-                    return None
-                
-                if not data.get("result", {}).get("list"):
-                    return None
-
-                df = pd.DataFrame(
-                    data["result"]["list"],
-                    columns=["open_time", "open", "high", "low", "close", "volume", "turnover"],
-                )
-                df = df.iloc[::-1].reset_index(drop=True)
-                df["open_time"] = pd.to_datetime(df["open_time"].astype(int), unit="ms")
-                for col in ["open", "high", "low", "close"]:
-                    df[col] = df[col].astype(float)
-
-                return df
-
-            except requests.exceptions.RequestException as e:
-                if attempt < self.config.api_retries - 1:
-                    time.sleep(self.config.api_retry_delay * (2 ** attempt))
-                else:
-                    self.logger.warning(f"Failed to fetch {symbol}: {e}")
-            except Exception as e:
-                self.logger.warning(f"Unexpected error {symbol}: {e}")
-                break
-
-        self.state.increment_errors()
-        return None
+        except Exception as e:
+            self.logger.warning(f"REST fetch failed for {symbol}: {e}")
+            self.state.increment_errors()
+            return None
 
     def get_current_price(self, symbol: str) -> Optional[float]:
-        url = "https://api.bybit.com/v5/market/tickers"
+        # Fallback to REST if needed, but we should use WS cache ideally
         try:
-            resp = self.session.get(url, params={"category": "linear", "symbol": symbol}, timeout=5)
-            data = resp.json()
-            if data["retCode"] == 0 and data["result"]["list"]:
-                return float(data["result"]["list"][0]["lastPrice"])
+            resp = self.session.get_tickers(category="linear", symbol=symbol)
+            if resp["retCode"] == 0 and resp["result"]["list"]:
+                return float(resp["result"]["list"][0]["lastPrice"])
         except Exception:
             pass
         return None
@@ -548,6 +549,95 @@ class DeviationMagnetStrategy:
         return False, ""
 
 
+class DataManager:
+    """Manages hybrid data: REST history + WebSocket updates."""
+    
+    def __init__(self, client: BybitClient, symbols: List[str]):
+        self.client = client
+        self.symbols = symbols
+        self.data: Dict[str, pd.DataFrame] = {}
+        self.lock = Lock()
+        self.logger = logging.getLogger("deviation_magnet")
+        
+    def initialize(self):
+        """Fetch initial history via REST in parallel."""
+        self.logger.info("Fetching initial history for indicators...")
+        with ThreadPoolExecutor(max_workers=self.client.config.max_workers) as executor:
+            future_to_symbol = {
+                executor.submit(self.client.fetch_history_rest, sym): sym 
+                for sym in self.symbols
+            }
+            for future in as_completed(future_to_symbol):
+                sym = future_to_symbol[future]
+                df = future.result()
+                if df is not None:
+                    with self.lock:
+                        self.data[sym] = df
+        
+        count = len(self.data)
+        self.logger.info(f"Initialized history for {count}/{len(self.symbols)} symbols")
+
+    def on_kline_update(self, message: dict):
+        """Handle WS kline update."""
+        # Pybit message format: {'topic': 'kline.1.BTCUSDT', 'data': [...], ...}
+        if "data" not in message:
+            return
+
+        for kline in message["data"]:
+            # We only care about confirmed candles for indicators, 
+            # BUT we might want the latest 'close' for real-time price checks.
+            # Strategy: Always update the latest candle in our DataFrame.
+            
+            # Extract symbol from topic or data (Pybit structure varies slightly by channel)
+            # message['topic'] is like "kline.1.BTCUSDT"
+            topic = message.get("topic", "")
+            parts = topic.split(".")
+            if len(parts) < 3:
+                continue
+            symbol = parts[2]
+            
+            with self.lock:
+                if symbol not in self.data:
+                    continue
+                
+                df = self.data[symbol]
+                
+                # Convert new kline to row
+                # kline structure from WS: {start, end, open, close, high, low...}
+                new_ts = pd.to_datetime(int(kline["start"]), unit="ms")
+                new_row = {
+                    "open_time": new_ts,
+                    "open": float(kline["open"]),
+                    "high": float(kline["high"]),
+                    "low": float(kline["low"]),
+                    "close": float(kline["close"]),
+                    "volume": float(kline["volume"]),
+                    "turnover": float(kline["turnover"])
+                }
+                
+                # Update logic:
+                # If timestamp matches last row, overwrite (candle updating)
+                # If timestamp is newer, append (candle closed, new one started)
+                last_ts = df.iloc[-1]["open_time"]
+                
+                if new_ts == last_ts:
+                    # Update last row efficiently
+                    for col, val in new_row.items():
+                        df.at[df.index[-1], col] = val
+                elif new_ts > last_ts:
+                    # Append new row
+                    new_df = pd.DataFrame([new_row])
+                    self.data[symbol] = pd.concat([df, new_df], ignore_index=True)
+                    
+                    # Trim to keep size manageable (e.g. keep last 300)
+                    if len(self.data[symbol]) > 300:
+                        self.data[symbol] = self.data[symbol].iloc[-300:].reset_index(drop=True)
+
+    def get_latest_data(self, symbol: str) -> Optional[pd.DataFrame]:
+        with self.lock:
+            return self.data.get(symbol)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # BOT CONTROLLER
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -562,112 +652,101 @@ class Bot:
         self.client = BybitClient(self.config, self.state)
         self.strategy = DeviationMagnetStrategy(self.config)
         self.symbols = load_symbols()
+        self.data_manager = DataManager(self.client, self.symbols)
 
     def run(self):
         """Start the bot loop."""
         self.state.load()
-        # self.state.load_trades()  # DISABLED: Always start with 0 trades for fresh session stats
+        # self.state.load_trades()
         self._print_header()
 
-        self.logger.info("🔄 Starting main loop...")
-        print("🔄 Starting main loop...", flush=True)
-
-        iteration = 0
-        last_daily = datetime.now(timezone.utc).date()
+        self.logger.info("🔄 Starting...")
         
-        executor = ThreadPoolExecutor(max_workers=self.config.max_workers)
+        # 1. Initialize Data
+        self.data_manager.initialize()
+        
+        # 2. Subscribe to WebSockets
+        self.logger.info("🔌 Connecting to WebSockets...")
+        
+        def handle_ws_message(message):
+            try:
+                self.data_manager.on_kline_update(message)
+                # Trigger processing for this symbol immediately
+                topic = message.get("topic", "")
+                if "kline" in topic:
+                    symbol = topic.split(".")[-1]
+                    self._process_symbol_event(symbol)
+            except Exception as e:
+                self.logger.error(f"WS Handler Error: {e}")
+
+        # Subscribe to all symbols
+        # Note: Pybit handles the connection loop
+        for symbol in self.symbols:
+            self.client.ws.kline_stream(
+                interval=int(self.config.timeframe),
+                symbol=symbol,
+                callback=handle_ws_message
+            )
+
+        print("⚡ Real-time processing started. Press Ctrl+C to stop.", flush=True)
 
         try:
             while True:
-                iteration += 1
-                
-                # Fetch Data
-                klines_map = self._fetch_all_data(executor)
-                
-                # Process
-                processed = 0
-                for symbol in self.symbols:
-                    try:
-                        processed += self._process_symbol(symbol, klines_map.get(symbol))
-                    except Exception as e:
-                        self.logger.error(f"Error processing {symbol}: {e}")
-                        self.logger.error(traceback.format_exc())
-
-                # Reporting
-                if iteration % self.config.status_interval == 0:
-                    self._print_status()
-                    self.state.cleanup_signals()
-                    self.logger.info(f"Heartbeat: iter {iteration} | pos: {len(self.state.positions)}")
-
-                # Daily Stats
-                today = datetime.now(timezone.utc).date()
-                if today != last_daily:
-                    self._daily_report(last_daily)
-                    last_daily = today
-
-                if iteration <= 3:
-                    self.logger.info(f"Completed iteration {iteration}")
-
+                # Keep main thread alive and print status
                 time.sleep(self.config.check_interval)
+                self._print_status()
+                self.state.cleanup_signals()
+                
+                # Daily report
+                last_daily = datetime.now(timezone.utc).date()  # Simplified check
+                # (Add robust daily check if needed)
 
         except KeyboardInterrupt:
             self.logger.info("Stopping... saving state")
             self.state.save()
             self._print_status()
-            print("\n✅ State saved. Run again to resume.\n", flush=True)
+            print("\n✅ State saved.\n", flush=True)
         except Exception as e:
             self.logger.error(f"💥 FATAL ERROR: {e}")
             self.logger.error(traceback.format_exc())
             self.state.save()
             raise
-        finally:
-            executor.shutdown(wait=False)
 
-    def _fetch_all_data(self, executor: ThreadPoolExecutor) -> Dict[str, Optional[pd.DataFrame]]:
-        results = {}
-        futures = {executor.submit(self.client.fetch_klines, sym): sym for sym in self.symbols}
-        
-        for future in as_completed(futures):
-            sym = futures[future]
-            try:
-                results[sym] = future.result()
-            except Exception:
-                results[sym] = None
-        return results
-
-    def _process_symbol(self, symbol: str, df: Optional[pd.DataFrame]) -> int:
+    def _process_symbol_event(self, symbol: str):
+        """Process strategy for a single symbol upon data update."""
+        df = self.data_manager.get_latest_data(symbol)
         if df is None:
-            return 0
+            return
 
         data = self.strategy.calculate_bands(df)
         if not data:
-            return 0
+            return
         
         current_price = data.close
         
-        # Update Stats if in position
-        if symbol in self.state.positions:
-            self._update_position_stats(symbol, current_price, data)
-
         # Check Exit
         if symbol in self.state.positions:
             pos = self.state.positions[symbol]
+            self._update_position_stats(symbol, current_price, data)
+            
             should_exit, reason = self.strategy.check_exit(pos, current_price)
             if should_exit:
                 self._execute_exit(symbol, pos, current_price, reason)
-                # Mark as seen so we don't re-enter immediately
+                # Prevent immediate re-entry
                 bar_key = f"{symbol}_{self._fmt_time(data.bar_time)}"
                 self.state.signals_seen[bar_key] = "exit"
-                return 1
+                return
 
         # Check Entry
         direction, is_dca = self.strategy.check_entry(symbol, data, self.state)
         if direction:
             self._execute_entry(symbol, direction, current_price, data.bar_time, is_dca)
-            
-        return 1
 
+    # ... (rest of methods like _fetch_all_data removed as they are replaced by DataManager)
+    # Keeping helper methods
+    
     def _update_position_stats(self, symbol: str, current_price: float, data: BandData):
+        # ... existing implementation ...
         pos = self.state.positions[symbol]
         avg = pos.avg_entry_price
         
@@ -685,22 +764,13 @@ class Bot:
             pos.last_processed_bar = bar_str
 
     def _execute_entry(self, symbol: str, direction: str, price: float, bar_time: datetime, is_dca: bool):
+        # ... existing implementation ...
         now = datetime.now(timezone.utc)
         bar_str = self._fmt_time(bar_time)
 
         if is_dca and symbol in self.state.positions:
             pos = self.state.positions[symbol]
-            # Previous Logic (Incorrect based on request):
-            # scale_mult = self.config.dca_scale ** pos.num_orders
-            # size = self.config.base_order_size * scale_mult
-
-            # New Logic: Size = Current Total Exposure * Scale
-            # If scale is 2.0, we add 2x the current total.
-            # Base $10 (Total $10) -> Add $20 -> Total $30
-            # Total $30 -> Add $60 -> Total $90
             size = pos.total_size * self.config.dca_scale
-            
-            # Fallback if somehow total_size is 0 (shouldn't happen)
             if size <= 0:
                 size = self.config.base_order_size
 
@@ -733,9 +803,8 @@ class Bot:
         self.state.save()
 
     def _execute_exit(self, symbol: str, pos: Position, price: float, reason: str):
+        # ... existing implementation ...
         now = datetime.now(timezone.utc)
-        
-        # Calculate PnL
         avg = pos.avg_entry_price
         total_size = pos.total_size
 
@@ -744,33 +813,12 @@ class Bot:
         else:
             pnl_pct = (avg - price) / avg * 100
             
-        # Fees: Apply to the ENTIRE total_size (entry) + ENTIRE total_size (exit)
-        # Assuming fee_pct is per-transaction rate (e.g. 0.055% = 0.00055)
-        # Total Fees = (Entry Volume * Fee) + (Exit Volume * Fee)
-        # Entry Volume is total_size. Exit Volume is (total_size * price / avg_entry) approx total_size
-        # To be precise on exit volume: Quantity = Size / AvgPrice. Exit Vol = Quantity * ExitPrice
-        
-        # Simplified volume-based fee calculation:
-        # Cost to Open = total_size
-        # Cost to Close = total_size * (1 + pnl_pct/100)  <-- Value at exit
-        
         entry_fee = total_size * self.config.fee_pct
-        exit_value = total_size * (1 + pnl_pct/100) if pos.direction == "long" else total_size * (1 - pnl_pct/100)
-        # Actually for short: PnL is positive if price drops. 
-        # But simpler: Value of position = total_size. 
-        # Fees are charged on Notional Value.
-        # Notional Entry = total_size
-        # Notional Exit = total_size * (price / avg)
-        
         notional_exit = total_size * (price / avg)
         exit_fee = notional_exit * self.config.fee_pct
-        
         total_fees = entry_fee + exit_fee
         
-        # Gross PnL
         gross_pnl_usd = pnl_pct / 100 * total_size
-        
-        # Net PnL
         pnl_usd = gross_pnl_usd - total_fees
         
         entry_time = pos.entry_time.replace(tzinfo=timezone.utc) if pos.entry_time.tzinfo is None else pos.entry_time
@@ -817,42 +865,34 @@ class Bot:
     def _print_header(self):
         c = self.config
         print(f"\n{'═' * 70}")
-        print(f"  🚀 DEVIATION MAGNET - 24/7 FORWARD TEST (Class Mode)")
+        print(f"  🚀 DEVIATION MAGNET - 24/7 FORWARD TEST (WebSocket Mode)")
         print(f"{'═' * 70}")
-        print(f"  Timeframe:      {c.timeframe}m")
+        print(f"  Timeframe:      {c.timeframe}m (Real-time Stream)")
         print(f"  Symbols:        {len(self.symbols)}")
         print(f"  DCA Config:     Base ${c.base_order_size} | Scale {c.dca_scale}x (Target Exposure Doubling)")
         print(f"  Target Profit:  {c.profit_target_pct}%")
         print(f"  Outputs:        {c.trades_file.name}, {c.trades_csv.name}")
-        
-        # Show DCA Progression
         print(f"{'─' * 70}")
         print(f"  DCA Progression Preview (Martingale):")
-        
-        # Calculate progression
         current_exposure = c.base_order_size
         print(f"    Base:    ${c.base_order_size:,.0f} (Total Exposure: ${current_exposure:,.0f})")
-        
         for i in range(min(5, c.max_dca_orders)):
-            # Step Size = Current Total * Scale
             next_size = current_exposure * c.dca_scale
             current_exposure += next_size
-            
             print(f"    DCA #{i+1}:  ${next_size:,.0f} (Total Exposure: ${current_exposure:,.0f})")
-
         if c.max_dca_orders > 5:
             print(f"    ... up to {c.max_dca_orders} orders")
-            
         print(f"{'═' * 70}\n", flush=True)
 
     def _print_status(self):
-        # (Simplified version of previous print_status)
-        now = datetime.now(timezone.utc)
+        # Simplified status
         print(f"\n{'─' * 60}")
         print(f"  ⏱  Active Positions: {len(self.state.positions)}")
         for sym, pos in self.state.positions.items():
-            current = self.client.get_current_price(sym)
-            if current:
+            # Get cached price from DataManager
+            df = self.data_manager.get_latest_data(sym)
+            if df is not None:
+                current = df.iloc[-1]["close"]
                 avg = pos.avg_entry_price
                 pnl = (current - avg)/avg*100 if pos.direction == "long" else (avg - current)/avg*100
                 print(f"      {sym:<10} {pos.direction:<5} {pnl:>+6.2f}% (Hold: {pos.bars_held} bars)")
