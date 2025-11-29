@@ -502,12 +502,20 @@ class DeviationMagnetStrategy:
             if pos.num_orders >= self.config.max_dca_orders:
                 return None, False
             
+            # Get last order price
+            last_order_price = pos.orders[-1]["price"]
+            
             if pos.direction == "long" and data.close <= data.lower3:
-                state.total_signals += 1
-                return "long", True
+                # DCA Filter: Only buy if price is lower than last entry
+                if data.close < last_order_price:
+                    state.total_signals += 1
+                    return "long", True
+            
             elif pos.direction == "short" and data.close >= data.upper3:
-                state.total_signals += 1
-                return "short", True
+                # DCA Filter: Only sell if price is higher than last entry
+                if data.close > last_order_price:
+                    state.total_signals += 1
+                    return "short", True
             
             return None, False
         
