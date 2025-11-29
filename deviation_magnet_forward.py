@@ -398,60 +398,60 @@ class BybitClient:
         self.session = requests.Session()
 
     def fetch_klines(self, symbol: str, limit: int = 250) -> Optional[pd.DataFrame]:
-    url = "https://api.bybit.com/v5/market/kline"
-    params = {
-        "category": "linear",
-        "symbol": symbol,
+        url = "https://api.bybit.com/v5/market/kline"
+        params = {
+            "category": "linear",
+            "symbol": symbol,
             "interval": self.config.timeframe,
-        "limit": limit,
-    }
+            "limit": limit,
+        }
 
         for attempt in range(self.config.api_retries):
-        try:
+            try:
                 resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
+                resp.raise_for_status()
+                data = resp.json()
 
-            if data["retCode"] != 0:
+                if data["retCode"] != 0:
                     self.logger.warning(f"API error {symbol}: {data.get('retMsg')}")
-                return None
-            
-            if not data.get("result", {}).get("list"):
-                return None
+                    return None
+                
+                if not data.get("result", {}).get("list"):
+                    return None
 
-            df = pd.DataFrame(
-                data["result"]["list"],
-                columns=["open_time", "open", "high", "low", "close", "volume", "turnover"],
-            )
-            df = df.iloc[::-1].reset_index(drop=True)
-            df["open_time"] = pd.to_datetime(df["open_time"].astype(int), unit="ms")
-            for col in ["open", "high", "low", "close"]:
-                df[col] = df[col].astype(float)
+                df = pd.DataFrame(
+                    data["result"]["list"],
+                    columns=["open_time", "open", "high", "low", "close", "volume", "turnover"],
+                )
+                df = df.iloc[::-1].reset_index(drop=True)
+                df["open_time"] = pd.to_datetime(df["open_time"].astype(int), unit="ms")
+                for col in ["open", "high", "low", "close"]:
+                    df[col] = df[col].astype(float)
 
-            return df
+                return df
 
-        except requests.exceptions.RequestException as e:
+            except requests.exceptions.RequestException as e:
                 if attempt < self.config.api_retries - 1:
                     time.sleep(self.config.api_retry_delay * (2 ** attempt))
-            else:
+                else:
                     self.logger.warning(f"Failed to fetch {symbol}: {e}")
-        except Exception as e:
+            except Exception as e:
                 self.logger.warning(f"Unexpected error {symbol}: {e}")
-            break
+                break
 
         self.state.increment_errors()
-    return None
+        return None
 
     def get_current_price(self, symbol: str) -> Optional[float]:
-    url = "https://api.bybit.com/v5/market/tickers"
-    try:
+        url = "https://api.bybit.com/v5/market/tickers"
+        try:
             resp = self.session.get(url, params={"category": "linear", "symbol": symbol}, timeout=5)
-        data = resp.json()
-        if data["retCode"] == 0 and data["result"]["list"]:
-            return float(data["result"]["list"][0]["lastPrice"])
-    except Exception:
-        pass
-    return None
+            data = resp.json()
+            if data["retCode"] == 0 and data["result"]["list"]:
+                return float(data["result"]["list"][0]["lastPrice"])
+        except Exception:
+            pass
+        return None
 
 
 class DeviationMagnetStrategy:
@@ -462,90 +462,90 @@ class DeviationMagnetStrategy:
 
     def calculate_bands(self, df: pd.DataFrame) -> Optional[BandData]:
         if df is None or len(df) < self.config.bb_length:
-        return None
+            return None
 
-    df = df.copy()
-    df["ohlc4"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
+        df = df.copy()
+        df["ohlc4"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
         df["basis"] = df["ohlc4"].rolling(self.config.bb_length).mean()
         df["stdev"] = df["ohlc4"].rolling(self.config.bb_length).std(ddof=0)
         df["dev"] = self.config.mult * df["stdev"]
         df["upper3"] = df["basis"] + df["dev"] * self.config.dev_mult
         df["lower3"] = df["basis"] - df["dev"] * self.config.dev_mult
 
-    latest = df.iloc[-1]
-    if pd.isna(latest["upper3"]):
-        return None
+        latest = df.iloc[-1]
+        if pd.isna(latest["upper3"]):
+            return None
 
-    return BandData(
-        close=latest["close"],
-        high=latest["high"],
-        low=latest["low"],
-        upper3=latest["upper3"],
-        lower3=latest["lower3"],
-        basis=latest["basis"],
-        bar_time=latest["open_time"],
-    )
+        return BandData(
+            close=latest["close"],
+            high=latest["high"],
+            low=latest["low"],
+            upper3=latest["upper3"],
+            lower3=latest["lower3"],
+            basis=latest["basis"],
+            bar_time=latest["open_time"],
+        )
 
     def check_entry(self, symbol: str, data: BandData, state: TradingState) -> Tuple[Optional[str], bool]:
         """Returns (direction, is_dca)."""
-    bar_time_str = data.bar_time.isoformat() if hasattr(data.bar_time, 'isoformat') else str(data.bar_time)
-    bar_key = f"{symbol}_{bar_time_str}"
-    
+        bar_time_str = data.bar_time.isoformat() if hasattr(data.bar_time, 'isoformat') else str(data.bar_time)
+        bar_key = f"{symbol}_{bar_time_str}"
+        
         # 1. Check Existing Position (DCA)
-    if symbol in state.positions:
-        pos = state.positions[symbol]
-        
-        if pos.last_bar_time == bar_time_str:
+        if symbol in state.positions:
+            pos = state.positions[symbol]
+            
+            if pos.last_bar_time == bar_time_str:
                 return None, False  # Already acted this bar
-        
+            
             if pos.num_orders >= self.config.max_dca_orders:
-            return None, False
-        
-        if pos.direction == "long" and data.close <= data.lower3:
-            state.total_signals += 1
+                return None, False
+            
+            if pos.direction == "long" and data.close <= data.lower3:
+                state.total_signals += 1
                 return "long", True
-        elif pos.direction == "short" and data.close >= data.upper3:
-            state.total_signals += 1
+            elif pos.direction == "short" and data.close >= data.upper3:
+                state.total_signals += 1
                 return "short", True
+            
+            return None, False
         
-        return None, False
-    
         # 2. Check New Entry
-    if bar_key in state.signals_seen:
+        if bar_key in state.signals_seen:
             return None, False
 
-    if data.close <= data.lower3:
-        state.signals_seen[bar_key] = "long"
-        state.total_signals += 1
-        return "long", False
-    elif data.close >= data.upper3:
-        state.signals_seen[bar_key] = "short"
-        state.total_signals += 1
-        return "short", False
+        if data.close <= data.lower3:
+            state.signals_seen[bar_key] = "long"
+            state.total_signals += 1
+            return "long", False
+        elif data.close >= data.upper3:
+            state.signals_seen[bar_key] = "short"
+            state.total_signals += 1
+            return "short", False
 
-    return None, False
+        return None, False
 
     def check_exit(self, position: Position, current_price: float) -> Tuple[bool, str]:
         avg_entry = position.avg_entry_price
         
         if position.direction == "long":
-        pnl_pct = (current_price - avg_entry) / avg_entry * 100
-    else:
-        pnl_pct = (avg_entry - current_price) / avg_entry * 100
+            pnl_pct = (current_price - avg_entry) / avg_entry * 100
+        else:
+            pnl_pct = (avg_entry - current_price) / avg_entry * 100
 
         if pnl_pct >= self.config.profit_target_pct:
-        return True, "profit_target"
+            return True, "profit_target"
 
-    now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
         entry = position.entry_time
-    if entry.tzinfo is None:
-        entry = entry.replace(tzinfo=timezone.utc)
-    
-    hold_minutes = (now - entry).total_seconds() / 60
+        if entry.tzinfo is None:
+            entry = entry.replace(tzinfo=timezone.utc)
+        
+        hold_minutes = (now - entry).total_seconds() / 60
         if hold_minutes >= self.config.max_hold_minutes:
-        return True, "max_hold"
+            return True, "max_hold"
 
-    return False, ""
+        return False, ""
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -671,9 +671,9 @@ class Bot:
         pos = self.state.positions[symbol]
         avg = pos.avg_entry_price
         
-            if pos.direction == "long":
+        if pos.direction == "long":
             pnl_pct = (current_price - avg) / avg * 100
-            else:
+        else:
             pnl_pct = (avg - current_price) / avg * 100
             
         pos.max_runup_pct = max(pos.max_runup_pct, pnl_pct)
