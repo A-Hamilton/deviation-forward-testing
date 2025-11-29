@@ -379,7 +379,7 @@ class TradingState:
                     writer.writeheader()
                 writer.writerow(asdict(trade))
                 
-    except Exception as e:
+        except Exception as e:
             self.logger.error(f"Failed to save trade CSV: {e}")
 
     def cleanup_signals(self) -> None:
@@ -397,7 +397,7 @@ class BybitClient:
         self.logger = logging.getLogger("deviation_magnet")
         self.session = requests.Session()
 
-    def fetch_klines(self, symbol: str, limit: int = 50) -> Optional[pd.DataFrame]:
+    def fetch_klines(self, symbol: str, limit: int = 250) -> Optional[pd.DataFrame]:
     url = "https://api.bybit.com/v5/market/kline"
     params = {
         "category": "linear",
