@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import traceback
+from collections import deque, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock, Thread
 from dataclasses import dataclass, field, asdict
@@ -707,15 +708,26 @@ class TradeExecutor:
 
 
 class DataManager:
-    """Manages hybrid data: REST history + WebSocket updates."""
+    """Manages hybrid data: REST history + WebSocket updates.
+    
+    Optimized for:
+    1. Latency: Uses deque for O(1) appends instead of expensive DataFrame.concat
+    2. Concurrency: Uses per-symbol locks to prevent blocking across pairs
+    3. Memory: deque(maxlen=N) automatically handles cleanup
+    """
     
     def __init__(self, client: BybitClient, symbols: List[str]):
         self.client = client
         self.symbols = symbols
-        self.data: Dict[str, pd.DataFrame] = {}
-        # Optimization: Separate locks per symbol could be better if contention is high,
-        # but for 30 symbols, a single lock is fine IF the critical section is fast.
-        self.lock = Lock()
+        
+        # Buffer: {symbol: deque([dict, dict, ...])}
+        # We store raw dicts/records and convert to DF only on demand.
+        self.data_buffers: Dict[str, deque] = {
+            s: deque(maxlen=300) for s in symbols
+        }
+        
+        # Fine-grained locking: One lock per symbol
+        self.locks: Dict[str, Lock] = defaultdict(Lock)
         self.logger = logging.getLogger("deviation_magnet")
         
     def initialize(self):
@@ -730,10 +742,14 @@ class DataManager:
                 sym = future_to_symbol[future]
                 df = future.result()
                 if df is not None:
-                    with self.lock:
-                        self.data[sym] = df
+                    with self.locks[sym]:
+                        # Convert DF to list of records for the deque
+                        # to_dict('records') returns [{col: val}, ...]
+                        records = df.to_dict("records")
+                        self.data_buffers[sym].extend(records)
         
-        count = len(self.data)
+        # Count non-empty buffers
+        count = sum(1 for b in self.data_buffers.values() if len(b) > 0)
         self.logger.info(f"Initialized history for {count}/{len(self.symbols)} symbols")
 
     def on_kline_update(self, message: dict):
@@ -748,56 +764,68 @@ class DataManager:
             return
         symbol = parts[2]
 
+        # Fail fast if symbol not tracked (though unlikely given subscription)
+        if symbol not in self.data_buffers:
+            return
+
         for kline in message["data"]:
             # Convert timestamp once
             new_ts = pd.to_datetime(int(kline["start"]), unit="ms")
             
-            with self.lock:
-                if symbol not in self.data:
+            # Use specific lock for this symbol only -> High Concurrency
+            with self.locks[symbol]:
+                buffer = self.data_buffers[symbol]
+                
+                if not buffer:
+                    # Initialize if empty (rare, usually covered by REST init)
+                    new_row = self._parse_kline(kline, new_ts)
+                    buffer.append(new_row)
                     continue
-                
-                df = self.data[symbol]
-                last_ts = df.iloc[-1]["open_time"]
-                
-                # OPTIMIZATION: Avoid creating full Series/Dict for update if possible
-                # But treating as dict is readable and safe.
+
+                last_row = buffer[-1]
+                last_ts = last_row["open_time"]
                 
                 if new_ts == last_ts:
                     # Update last row in-place (Fastest)
-                    # We map API keys to DF columns
-                    df.at[df.index[-1], "close"] = float(kline["close"])
-                    df.at[df.index[-1], "high"] = float(kline["high"])
-                    df.at[df.index[-1], "low"] = float(kline["low"])
-                    df.at[df.index[-1], "open"] = float(kline["open"])
-                    df.at[df.index[-1], "volume"] = float(kline["volume"])
+                    # Modify the dict reference directly
+                    last_row["close"] = float(kline["close"])
+                    last_row["high"] = float(kline["high"])
+                    last_row["low"] = float(kline["low"])
+                    last_row["open"] = float(kline["open"])
+                    last_row["volume"] = float(kline["volume"])
+                    last_row["turnover"] = float(kline["turnover"])
                     
                 elif new_ts > last_ts:
-                    # Append new row
-                    # Creating a 1-row DataFrame is standard for appending
-                    new_row = {
-                        "open_time": new_ts,
-                        "open": float(kline["open"]),
-                        "high": float(kline["high"]),
-                        "low": float(kline["low"]),
-                        "close": float(kline["close"]),
-                        "volume": float(kline["volume"]),
-                        "turnover": float(kline["turnover"])
-                    }
-                    new_df = pd.DataFrame([new_row])
-                    
-                    # Concat is expensive, but necessary for expanding the DF.
-                    # Optimization: Limit history length to prevent unbounded growth slows concat.
-                    self.data[symbol] = pd.concat([df, new_df], ignore_index=True)
-                    
-                    # Truncate if too large (keep 300, need 200 for BB)
-                    if len(self.data[symbol]) > 300:
-                        self.data[symbol] = self.data[symbol].iloc[-300:].reset_index(drop=True)
+                    # Append new row (O(1))
+                    # deque(maxlen=300) automatically drops oldest
+                    new_row = self._parse_kline(kline, new_ts)
+                    buffer.append(new_row)
 
     def get_latest_data(self, symbol: str) -> Optional[pd.DataFrame]:
-        with self.lock:
-            # Return a copy to prevent concurrent modification issues during calculation
-            # Copy is O(N) but safer. For 300 rows it's very fast.
-            return self.data.get(symbol).copy() if symbol in self.data else None
+        """Convert buffer to DataFrame for calculation."""
+        # This is now the 'slow' part, but it only happens when Bot requests it,
+        # not on every single tick if we throttled processing (which we do by loop).
+        # Actually, in event-driven mode, this is called on every update.
+        # Creating a DF from 300 dicts is still very fast (~ms).
+        
+        with self.locks[symbol]:
+            buffer = self.data_buffers.get(symbol)
+            if not buffer or len(buffer) < 2:
+                return None
+            
+            # Optimization: pd.DataFrame.from_records is faster than from_dict list
+            return pd.DataFrame.from_records(buffer)
+
+    def _parse_kline(self, kline: dict, ts: datetime) -> dict:
+        return {
+            "open_time": ts,
+            "open": float(kline["open"]),
+            "high": float(kline["high"]),
+            "low": float(kline["low"]),
+            "close": float(kline["close"]),
+            "volume": float(kline["volume"]),
+            "turnover": float(kline["turnover"])
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
