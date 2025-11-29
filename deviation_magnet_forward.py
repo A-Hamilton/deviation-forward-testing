@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import traceback
+import queue
 from collections import deque, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock, Thread
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Tuple, Any
 
 import pandas as pd
+import numpy as np
 import requests
 from pybit.unified_trading import HTTP, WebSocket
 
@@ -462,29 +464,45 @@ class DeviationMagnetStrategy:
     def __init__(self, config: Config):
         self.config = config
 
-    def calculate_bands(self, df: pd.DataFrame) -> Optional[BandData]:
-        if df is None or len(df) < self.config.bb_length:
+    def calculate_bands_fast(self, buffer: deque) -> Optional[BandData]:
+        """
+        High-performance Bollinger Band calculation using Numpy.
+        Removes Pandas overhead from the critical path.
+        """
+        if len(buffer) < self.config.bb_length:
             return None
 
-        df = df.copy()
-        df["ohlc4"] = (df["open"] + df["high"] + df["low"] + df["close"]) / 4
-        df["basis"] = df["ohlc4"].rolling(self.config.bb_length).mean()
-        df["stdev"] = df["ohlc4"].rolling(self.config.bb_length).std(ddof=0)
-        df["dev"] = self.config.mult * df["stdev"]
-        df["upper3"] = df["basis"] + df["dev"] * self.config.dev_mult
-        df["lower3"] = df["basis"] - df["dev"] * self.config.dev_mult
-
-        latest = df.iloc[-1]
-        if pd.isna(latest["upper3"]):
-            return None
-
+        # Optimization: Only take the last bb_length items needed
+        subset = list(buffer)[-self.config.bb_length:]
+        
+        # Extract columns to numpy arrays
+        # Structure: [ {'close': 1.0, 'high': ...}, ... ]
+        closes = np.array([x["close"] for x in subset], dtype=np.float64)
+        
+        # Calculate OHLC4
+        highs = np.array([x["high"] for x in subset], dtype=np.float64)
+        lows = np.array([x["low"] for x in subset], dtype=np.float64)
+        opens = np.array([x["open"] for x in subset], dtype=np.float64)
+        ohlc4 = (opens + highs + lows + closes) / 4.0
+        
+        # Calculate Basis (Mean) and Stdev
+        basis = np.mean(ohlc4)
+        stdev = np.std(ohlc4) # Default ddof=0 matches pandas std(ddof=0)
+        
+        # Calculate Bands
+        dev = self.config.mult * stdev
+        upper3 = basis + (dev * self.config.dev_mult)
+        lower3 = basis - (dev * self.config.dev_mult)
+        
+        latest = subset[-1]
+        
         return BandData(
             close=latest["close"],
             high=latest["high"],
             low=latest["low"],
-            upper3=latest["upper3"],
-            lower3=latest["lower3"],
-            basis=latest["basis"],
+            upper3=upper3,
+            lower3=lower3,
+            basis=basis,
             bar_time=latest["open_time"],
         )
 
@@ -796,7 +814,16 @@ class DataManager:
                     last_row["turnover"] = float(kline["turnover"])
                     
                 elif new_ts > last_ts:
-                    # Append new row (O(1))
+                    # Check for data gaps
+                    time_diff = (new_ts - last_ts).total_seconds() / 60
+                    # If gap > timeframe * 2 (allow 1 missing bar), clear buffer
+                    # Assuming timeframe is in minutes. 
+                    # Note: config.timeframe is string "1", "5" etc.
+                    tf_min = int(self.client.config.timeframe)
+                    if time_diff > tf_min * 5: # Allow small gaps, but reset on large ones
+                        self.logger.warning(f"⚠️ Data Gap detected for {symbol}: {time_diff:.1f}m. Resetting buffer.")
+                        buffer.clear()
+                        
                     # deque(maxlen=300) automatically drops oldest
                     new_row = self._parse_kline(kline, new_ts)
                     buffer.append(new_row)
@@ -843,6 +870,9 @@ class Bot:
         self.strategy = DeviationMagnetStrategy(self.config)
         self.symbols = load_symbols()
         self.data_manager = DataManager(self.client, self.symbols)
+        self.event_queue = queue.Queue()
+        self.last_update_time: Dict[str, float] = {}
+        self.watchdog_threshold = 60.0  # Seconds
 
     def run(self):
         """Start the bot loop."""
@@ -861,11 +891,12 @@ class Bot:
         def handle_ws_message(message):
             try:
                 self.data_manager.on_kline_update(message)
-                # Trigger processing for this symbol immediately
+                # Queue event for processing in main thread
                 topic = message.get("topic", "")
                 if "kline" in topic:
                     symbol = topic.split(".")[-1]
-                    self._process_symbol_event(symbol)
+                    self.last_update_time[symbol] = time.time()
+                    self.event_queue.put(symbol)
             except Exception as e:
                 self.logger.error(f"WS Handler Error: {e}")
 
@@ -880,16 +911,35 @@ class Bot:
 
         print("⚡ Real-time processing started. Press Ctrl+C to stop.", flush=True)
 
+        last_status_time = time.time()
+        last_daily_date = datetime.now(timezone.utc).date()
+
         try:
             while True:
-                # Keep main thread alive and print status
-                time.sleep(self.config.check_interval)
-                self._print_status()
-                self.state.cleanup_signals()
+                # 1. Process Events from Queue
+                try:
+                    # Process a batch of events to keep queue drained
+                    # But don't block indefinitely
+                    for _ in range(50):
+                        symbol = self.event_queue.get_nowait()
+                        self._process_symbol_event(symbol)
+                        self.event_queue.task_done()
+                except queue.Empty:
+                    time.sleep(0.01)  # Prevent CPU spin
+
+                # 2. Periodic Status & Cleanup
+                now = time.time()
+                if now - last_status_time >= self.config.check_interval:
+                    self._print_status()
+                    self.state.cleanup_signals()
+                    self._check_watchdog()
+                    last_status_time = now
                 
-                # Daily report
-                last_daily = datetime.now(timezone.utc).date()  # Simplified check
-                # (Add robust daily check if needed)
+                # 3. Daily report
+                current_date = datetime.now(timezone.utc).date()
+                if current_date > last_daily_date:
+                    self._daily_report(last_daily_date)
+                    last_daily_date = current_date
 
         except KeyboardInterrupt:
             self.logger.info("Stopping... saving state")
@@ -902,13 +952,21 @@ class Bot:
             self.state.save()
             raise
 
+    def _check_watchdog(self):
+        now = time.time()
+        for symbol in self.symbols:
+            last = self.last_update_time.get(symbol, now)
+            if now - last > self.watchdog_threshold:
+                self.logger.warning(f"⚠️ WATCHDOG: No data for {symbol} in {now - last:.1f}s!")
+
     def _process_symbol_event(self, symbol: str):
         """Process strategy for a single symbol upon data update."""
-        df = self.data_manager.get_latest_data(symbol)
-        if df is None:
-            return
-
-        data = self.strategy.calculate_bands(df)
+        with self.data_manager.locks[symbol]:
+            buffer = self.data_manager.data_buffers.get(symbol)
+            if not buffer:
+                return
+            # Pass deque directly (thread-safe due to lock)
+            data = self.strategy.calculate_bands_fast(buffer)
         if not data:
             return
         
