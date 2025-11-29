@@ -542,7 +542,15 @@ class DeviationMagnetStrategy:
         else:
             pnl_pct = (avg_entry - current_price) / avg_entry * 100
 
-        if pnl_pct >= self.config.profit_target_pct:
+        # Calculate required target: Profit Target + Round Trip Fees
+        # Fee is paid on entry AND exit. Total fee % approx = fee_pct * 2
+        # Example: 0.1% Profit + (0.055% * 2) Fees = 0.21% Gross Target
+        required_pct = self.config.profit_target_pct + (self.config.fee_pct * 2 * 100)
+        
+        # Add a tiny slippage buffer (e.g. 0.01%) to ensure net positive
+        required_pct += 0.01
+
+        if pnl_pct >= required_pct:
             return True, "profit_target"
 
         now = datetime.now(timezone.utc)
