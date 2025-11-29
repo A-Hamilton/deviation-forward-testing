@@ -537,14 +537,28 @@ class DeviationMagnetStrategy:
     def check_exit(self, position: Position, current_price: float) -> Tuple[bool, str]:
         avg_entry = position.avg_entry_price
         
+        # 1. Base Entry Price Check
+        # We must cross the INITIAL entry price to ensure "mean reversion" completed
+        # Short ($1, $1.2, $1.4) -> Must exit below $1.0
+        if not position.orders:
+            return False, ""
+            
+        base_entry_price = position.orders[0]["price"]
+        
         if position.direction == "long":
+            # Must be ABOVE base entry
+            if current_price <= base_entry_price:
+                return False, ""
             pnl_pct = (current_price - avg_entry) / avg_entry * 100
         else:
+            # Must be BELOW base entry
+            if current_price >= base_entry_price:
+                return False, ""
             pnl_pct = (avg_entry - current_price) / avg_entry * 100
 
+        # 2. Profit Target + Fees Check
         # Calculate required target: Profit Target + Round Trip Fees
         # Fee is paid on entry AND exit. Total fee % approx = fee_pct * 2
-        # Example: 0.1% Profit + (0.055% * 2) Fees = 0.21% Gross Target
         required_pct = self.config.profit_target_pct + (self.config.fee_pct * 2 * 100)
         
         # Add a tiny slippage buffer (e.g. 0.01%) to ensure net positive
@@ -553,6 +567,7 @@ class DeviationMagnetStrategy:
         if pnl_pct >= required_pct:
             return True, "profit_target"
 
+        # 3. Time-based Exit (Optional - keeps existing logic)
         now = datetime.now(timezone.utc)
         entry = position.entry_time
         if entry.tzinfo is None:
@@ -560,6 +575,8 @@ class DeviationMagnetStrategy:
         
         hold_minutes = (now - entry).total_seconds() / 60
         if hold_minutes >= self.config.max_hold_minutes:
+            # Even for max hold, we should probably check if we are at least profitable?
+            # Or just bail. Keeping original behavior (bail).
             return True, "max_hold"
 
         return False, ""
