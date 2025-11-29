@@ -40,8 +40,8 @@ class Config:
     """Trading configuration parameters."""
 
     # Indicator settings
-    bb_length: int = 200
-    mult: float = 3.0
+    bb_length: int = 10
+    mult: float = 5.0
     dev_mult: float = 1.5
 
     # Timing
@@ -484,42 +484,46 @@ class DeviationMagnetStrategy:
     def __init__(self, config: Config):
         self.config = config
 
-    def calculate_bands_fast(self, buffer: np.ndarray) -> Optional[BandData]:
+    def calculate_bands_fast(self, buffer: np.ndarray, count: int, head: int, array_size: int) -> Optional[BandData]:
         """
         High-performance Bollinger Band calculation using Numpy.
-        Expects a pre-allocated numpy array of shape (N, 5).
-        Columns: [open, high, low, close, open_time_ts]
+        Uses LAGGED logic (TradingView style):
+        - Stats calculated on previous N candles (excluding current).
+        - Current price compared to bands from previous N candles.
+        
+        Expects circular buffer indexing.
         """
-        # buffer is already a numpy array, no conversion needed!
-        # Check if we have enough data (non-nan)
-        # We assume the buffer is filled from the end.
+        # We need bb_length + 1 items: N for stats, +1 for current price
+        required_len = self.config.bb_length + 1
         
-        # Optimization: We just take the whole buffer or a slice
-        # The buffer might contain NaNs if not full yet.
-        # Let's assume DataManager handles filling and we just take valid data.
-        # Actually, for speed, DataManager should provide a valid view.
-        
-        if len(buffer) < self.config.bb_length:
+        if count < required_len:
             return None
 
-        # Take last bb_length rows
-        subset = buffer[-self.config.bb_length:]
+        # Extract the last N+1 items in chronological order
+        if count < array_size:
+            # Buffer not full, data is linear [0:count]
+            subset = buffer[count - required_len : count]
+        else:
+            # Circular buffer is full
+            # Extract last N+1 items: [head - N, ..., head]
+            indices = [(head - required_len + 1 + i) % array_size for i in range(required_len)]
+            subset = buffer[indices]
         
-        # Check for NaNs (incomplete history)
-        # If the start of our window is NaN, we don't have enough valid data yet
-        if np.isnan(subset[0, 0]):
+        # Check for NaNs in the STATS window (excluding current)
+        stats_window = subset[:-1]
+        if np.isnan(stats_window[0, 0]):
             return None
         
         # Columns: 0=open, 1=high, 2=low, 3=close, 4=time
-        opens = subset[:, 0]
-        highs = subset[:, 1]
-        lows = subset[:, 2]
-        closes = subset[:, 3]
+        opens = stats_window[:, 0]
+        highs = stats_window[:, 1]
+        lows = stats_window[:, 2]
+        closes = stats_window[:, 3]
         
-        # Calculate OHLC4
+        # Calculate OHLC4 on PREVIOUS N candles
         ohlc4 = (opens + highs + lows + closes) / 4.0
         
-        # Calculate Basis (Mean) and Stdev
+        # Calculate Basis (Mean) and Stdev on PREVIOUS N candles
         basis = np.mean(ohlc4)
         stdev = np.std(ohlc4)
         
@@ -528,10 +532,12 @@ class DeviationMagnetStrategy:
         upper3 = basis + (dev * self.config.dev_mult)
         lower3 = basis - (dev * self.config.dev_mult)
         
-        latest_close = closes[-1]
-        latest_high = highs[-1]
-        latest_low = lows[-1]
-        latest_time_ts = subset[-1, 4]
+        # Current Candle (The one we are trading)
+        current_candle = subset[-1]
+        latest_close = current_candle[3]
+        latest_high = current_candle[1]
+        latest_low = current_candle[2]
+        latest_time_ts = current_candle[4]
         
         # Convert timestamp back to datetime for logic
         bar_time = datetime.fromtimestamp(latest_time_ts, tz=timezone.utc).replace(tzinfo=None)
@@ -786,8 +792,9 @@ class DataManager:
             s: np.full((self.array_size, 5), np.nan, dtype=np.float64) for s in symbols
         }
         
-        # Track valid count to know if buffer is full enough
+        # Circular buffer tracking
         self.counts: Dict[str, int] = {s: 0 for s in symbols}
+        self.head: Dict[str, int] = {s: 0 for s in symbols}  # Index of newest item
         
         # Fine-grained locking: One lock per symbol
         self.locks: Dict[str, Lock] = defaultdict(Lock)
@@ -826,10 +833,12 @@ class DataManager:
                         if length >= self.array_size:
                             self.data_buffers[sym][:] = data[-self.array_size:]
                             self.counts[sym] = self.array_size
+                            self.head[sym] = self.array_size - 1  # Last index
                         else:
-                            # Fill end
-                            self.data_buffers[sym][-length:] = data
+                            # Fill from start
+                            self.data_buffers[sym][:length] = data
                             self.counts[sym] = length
+                            self.head[sym] = length - 1
         
         # Count non-empty buffers
         count = sum(1 for c in self.counts.values() if c > 0)
@@ -870,17 +879,20 @@ class DataManager:
                     ts_float
                 ], dtype=np.float64)
 
+                head_idx = self.head[symbol]
+                
                 if count == 0:
-                    # First item, put at end
-                    buffer[-1] = new_row
+                    # First item
+                    buffer[0] = new_row
                     self.counts[symbol] = 1
+                    self.head[symbol] = 0
                     continue
 
-                last_ts = buffer[-1, 4]
+                last_ts = buffer[head_idx, 4]
                 
                 if ts_float == last_ts:
-                    # Update last row in-place (Fastest)
-                    buffer[-1] = new_row
+                    # Update in-place (same candle)
+                    buffer[head_idx] = new_row
                     
                 elif ts_float > last_ts:
                     # Check for data gaps
@@ -891,32 +903,42 @@ class DataManager:
                         self.logger.warning(f"⚠️ Data Gap detected for {symbol}: {time_diff:.1f}m. Resetting buffer.")
                         # Reset
                         buffer.fill(np.nan)
-                        buffer[-1] = new_row
+                        buffer[0] = new_row
                         self.counts[symbol] = 1
+                        self.head[symbol] = 0
                     else:
-                        # Shift and append
-                        # Optimized shift: move all items one step left
-                        buffer[:-1] = buffer[1:]
-                        buffer[-1] = new_row
+                        # Circular increment (O(1) operation!)
+                        new_head = (head_idx + 1) % self.array_size
+                        buffer[new_head] = new_row
+                        self.head[symbol] = new_head
                         self.counts[symbol] = min(count + 1, self.array_size)
 
+    def get_ordered_view(self, symbol: str) -> Optional[np.ndarray]:
+        """Get chronologically ordered view of circular buffer."""
+        buffer = self.data_buffers.get(symbol)
+        count = self.counts.get(symbol, 0)
+        head = self.head.get(symbol, 0)
+        
+        if buffer is None or count == 0:
+            return None
+        
+        if count < self.array_size:
+            # Not full yet, data is in [0:count]
+            return buffer[:count]
+        else:
+            # Full circular buffer, reorder
+            # [head+1, ..., end, 0, ..., head]
+            return np.concatenate([buffer[head+1:], buffer[:head+1]])
+    
     def get_latest_data(self, symbol: str) -> Optional[pd.DataFrame]:
-        """Convert buffer to DataFrame for calculation."""
-        # Used for status display only now
+        """Convert buffer to DataFrame for display."""
         with self.locks[symbol]:
-            buffer = self.data_buffers.get(symbol)
-            if buffer is None:
-                return None
+            ordered = self.get_ordered_view(symbol)
             
-            # Filter valid data
-            valid_mask = ~np.isnan(buffer[:, 0])
-            valid_data = buffer[valid_mask]
-            
-            if len(valid_data) == 0:
+            if ordered is None or len(ordered) == 0:
                 return None
                 
-            df = pd.DataFrame(valid_data, columns=["open", "high", "low", "close", "ts"])
-            # Convert ts back to datetime for display
+            df = pd.DataFrame(ordered, columns=["open", "high", "low", "close", "ts"])
             df["open_time"] = pd.to_datetime(df["ts"], unit="s")
             return df
 
@@ -1046,8 +1068,12 @@ class Bot:
             buffer = self.data_manager.data_buffers.get(symbol)
             if buffer is None:
                 return
-            # Pass numpy array directly (thread-safe due to lock)
-            data = self.strategy.calculate_bands_fast(buffer)
+            count = self.data_manager.counts.get(symbol, 0)
+            head = self.data_manager.head.get(symbol, 0)
+            array_size = self.data_manager.array_size
+            
+            # Pass circular buffer metadata
+            data = self.strategy.calculate_bands_fast(buffer, count, head, array_size)
         if not data:
             return
         
