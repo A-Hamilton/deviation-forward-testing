@@ -549,6 +549,130 @@ class DeviationMagnetStrategy:
         return False, ""
 
 
+class TradeExecutor:
+    """Handles order execution, PnL math, and state updates."""
+
+    def __init__(self, config: Config, state: TradingState):
+        self.config = config
+        self.state = state
+        self.logger = logging.getLogger("deviation_magnet")
+
+    def execute_entry(self, symbol: str, direction: str, price: float, bar_time: datetime, is_dca: bool):
+        now = datetime.now(timezone.utc)
+        bar_str = self._fmt_time(bar_time)
+
+        if is_dca and symbol in self.state.positions:
+            pos = self.state.positions[symbol]
+            # Size = Current Total Exposure * Scale (Martingale Tripling with scale 2.0)
+            size = pos.total_size * self.config.dca_scale
+            
+            # Fallback
+            if size <= 0:
+                size = self.config.base_order_size
+
+            pos.orders.append({
+                "price": price,
+                "size": size,
+                "time": now.isoformat(),
+                "bar_time": bar_str
+            })
+            
+            self.logger.info(
+                f"📥 DCA #{pos.num_orders}: {symbol} {direction.upper()} @ ${price:.4f} "
+                f"(+${size:.0f}, total: ${pos.total_size:.0f}) | Avg: ${pos.avg_entry_price:.4f}"
+            )
+        else:
+            initial = {
+                "price": price,
+                "size": self.config.base_order_size,
+                "time": now.isoformat(),
+                "bar_time": bar_str
+            }
+            self.state.positions[symbol] = Position(
+                symbol=symbol,
+                direction=direction,
+                orders=[initial],
+                entry_time=now,
+            )
+            self.logger.info(f"📥 ENTRY: {symbol} {direction.upper()} @ ${price:.4f} (${self.config.base_order_size:.0f})")
+
+        self.state.save()
+
+    def execute_exit(self, symbol: str, pos: Position, price: float, reason: str):
+        now = datetime.now(timezone.utc)
+        avg = pos.avg_entry_price
+        total_size = pos.total_size
+
+        if pos.direction == "long":
+            pnl_pct = (price - avg) / avg * 100
+        else:
+            pnl_pct = (avg - price) / avg * 100
+            
+        # Fees logic
+        entry_fee = total_size * self.config.fee_pct
+        notional_exit = total_size * (price / avg)
+        exit_fee = notional_exit * self.config.fee_pct
+        total_fees = entry_fee + exit_fee
+        
+        gross_pnl_usd = pnl_pct / 100 * total_size
+        pnl_usd = gross_pnl_usd - total_fees
+        
+        entry_time = pos.entry_time.replace(tzinfo=timezone.utc) if pos.entry_time.tzinfo is None else pos.entry_time
+        
+        trade = Trade(
+            symbol=symbol,
+            direction=pos.direction,
+            entry_price=avg,
+            exit_price=price,
+            entry_time=entry_time.strftime("%Y-%m-%d %H:%M:%S"),
+            exit_time=now.strftime("%Y-%m-%d %H:%M:%S"),
+            pnl_pct=round(pnl_pct, 4),
+            pnl_usd=round(pnl_usd, 4),
+            hold_seconds=int((now - entry_time).total_seconds()),
+            exit_reason=reason,
+            position_size=total_size,
+            num_dca_orders=pos.num_orders,
+            max_runup_pct=pos.max_runup_pct,
+            max_drawdown_pct=pos.max_drawdown_pct,
+            bars_held=pos.bars_held
+        )
+        
+        self.state.add_trade(trade)
+        if symbol in self.state.positions:
+            del self.state.positions[symbol]
+        self.state.save()
+
+        emoji = "✅" if pnl_usd > 0 else "❌"
+        self.logger.info(
+            f"{emoji} EXIT: {symbol} {pos.direction.upper()} @ ${price:.4f} | "
+            f"PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%) | {reason}"
+        )
+        self.logger.info(f"   Stats: Runup: {pos.max_runup_pct:.2f}% | DD: {pos.max_drawdown_pct:.2f}% | Bars: {pos.bars_held}")
+
+    def update_position_stats(self, symbol: str, current_price: float, data: BandData):
+        if symbol not in self.state.positions:
+            return
+            
+        pos = self.state.positions[symbol]
+        avg = pos.avg_entry_price
+        
+        if pos.direction == "long":
+            pnl_pct = (current_price - avg) / avg * 100
+        else:
+            pnl_pct = (avg - current_price) / avg * 100
+            
+        pos.max_runup_pct = max(pos.max_runup_pct, pnl_pct)
+        pos.max_drawdown_pct = min(pos.max_drawdown_pct, pnl_pct)
+        
+        bar_str = self._fmt_time(data.bar_time)
+        if pos.last_processed_bar != bar_str:
+            pos.bars_held += 1
+            pos.last_processed_bar = bar_str
+
+    def _fmt_time(self, t: datetime) -> str:
+        return t.isoformat() if hasattr(t, 'isoformat') else str(t)
+
+
 class DataManager:
     """Manages hybrid data: REST history + WebSocket updates."""
     
@@ -556,6 +680,8 @@ class DataManager:
         self.client = client
         self.symbols = symbols
         self.data: Dict[str, pd.DataFrame] = {}
+        # Optimization: Separate locks per symbol could be better if contention is high,
+        # but for 30 symbols, a single lock is fine IF the critical section is fast.
         self.lock = Lock()
         self.logger = logging.getLogger("deviation_magnet")
         
@@ -578,64 +704,67 @@ class DataManager:
         self.logger.info(f"Initialized history for {count}/{len(self.symbols)} symbols")
 
     def on_kline_update(self, message: dict):
-        """Handle WS kline update."""
-        # Pybit message format: {'topic': 'kline.1.BTCUSDT', 'data': [...], ...}
+        """Handle WS kline update efficiently."""
         if "data" not in message:
             return
 
+        # Extract symbol from topic (e.g. "kline.1.BTCUSDT")
+        topic = message.get("topic", "")
+        parts = topic.split(".")
+        if len(parts) < 3:
+            return
+        symbol = parts[2]
+
         for kline in message["data"]:
-            # We only care about confirmed candles for indicators, 
-            # BUT we might want the latest 'close' for real-time price checks.
-            # Strategy: Always update the latest candle in our DataFrame.
-            
-            # Extract symbol from topic or data (Pybit structure varies slightly by channel)
-            # message['topic'] is like "kline.1.BTCUSDT"
-            topic = message.get("topic", "")
-            parts = topic.split(".")
-            if len(parts) < 3:
-                continue
-            symbol = parts[2]
+            # Convert timestamp once
+            new_ts = pd.to_datetime(int(kline["start"]), unit="ms")
             
             with self.lock:
                 if symbol not in self.data:
                     continue
                 
                 df = self.data[symbol]
-                
-                # Convert new kline to row
-                # kline structure from WS: {start, end, open, close, high, low...}
-                new_ts = pd.to_datetime(int(kline["start"]), unit="ms")
-                new_row = {
-                    "open_time": new_ts,
-                    "open": float(kline["open"]),
-                    "high": float(kline["high"]),
-                    "low": float(kline["low"]),
-                    "close": float(kline["close"]),
-                    "volume": float(kline["volume"]),
-                    "turnover": float(kline["turnover"])
-                }
-                
-                # Update logic:
-                # If timestamp matches last row, overwrite (candle updating)
-                # If timestamp is newer, append (candle closed, new one started)
                 last_ts = df.iloc[-1]["open_time"]
                 
+                # OPTIMIZATION: Avoid creating full Series/Dict for update if possible
+                # But treating as dict is readable and safe.
+                
                 if new_ts == last_ts:
-                    # Update last row efficiently
-                    for col, val in new_row.items():
-                        df.at[df.index[-1], col] = val
+                    # Update last row in-place (Fastest)
+                    # We map API keys to DF columns
+                    df.at[df.index[-1], "close"] = float(kline["close"])
+                    df.at[df.index[-1], "high"] = float(kline["high"])
+                    df.at[df.index[-1], "low"] = float(kline["low"])
+                    df.at[df.index[-1], "open"] = float(kline["open"])
+                    df.at[df.index[-1], "volume"] = float(kline["volume"])
+                    
                 elif new_ts > last_ts:
                     # Append new row
+                    # Creating a 1-row DataFrame is standard for appending
+                    new_row = {
+                        "open_time": new_ts,
+                        "open": float(kline["open"]),
+                        "high": float(kline["high"]),
+                        "low": float(kline["low"]),
+                        "close": float(kline["close"]),
+                        "volume": float(kline["volume"]),
+                        "turnover": float(kline["turnover"])
+                    }
                     new_df = pd.DataFrame([new_row])
+                    
+                    # Concat is expensive, but necessary for expanding the DF.
+                    # Optimization: Limit history length to prevent unbounded growth slows concat.
                     self.data[symbol] = pd.concat([df, new_df], ignore_index=True)
                     
-                    # Trim to keep size manageable (e.g. keep last 300)
+                    # Truncate if too large (keep 300, need 200 for BB)
                     if len(self.data[symbol]) > 300:
                         self.data[symbol] = self.data[symbol].iloc[-300:].reset_index(drop=True)
 
     def get_latest_data(self, symbol: str) -> Optional[pd.DataFrame]:
         with self.lock:
-            return self.data.get(symbol)
+            # Return a copy to prevent concurrent modification issues during calculation
+            # Copy is O(N) but safer. For 300 rows it's very fast.
+            return self.data.get(symbol).copy() if symbol in self.data else None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
