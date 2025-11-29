@@ -93,31 +93,12 @@ class Config:
         return self.data_dir / "forward_test.log"
 
 
-def load_symbols() -> list[str]:
-    """Load symbols to monitor."""
-    env_symbols = os.environ.get("TRADING_SYMBOLS")
-    if env_symbols:
-        return [s.strip().upper() for s in env_symbols.split(",")]
-    
-    return [
-        "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
-        "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT", "POLUSDT",
-        "SUIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "NEARUSDT",
-        "ATOMUSDT", "LTCUSDT", "BNBUSDT", "INJUSDT", "TAOUSDT",
-        "1000PEPEUSDT", "WIFUSDT", "TIAUSDT", "RENDERUSDT", "ONDOUSDT",
-        "JUPUSDT", "ENAUSDT", "STXUSDT", "IMXUSDT", "SEIUSDT",
-    ]
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # LOGGING
 # ═══════════════════════════════════════════════════════════════════════════════
-
-class FlushStreamHandler(logging.StreamHandler):
-    """StreamHandler that flushes after every emit."""
-    def emit(self, record):
-        super().emit(record)
-        self.flush()
 
 def setup_logging(config: Config) -> logging.Logger:
     """Configure logging."""
@@ -131,7 +112,7 @@ def setup_logging(config: Config) -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    console = FlushStreamHandler(sys.stdout)
+    console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
     log.addHandler(console)
 
@@ -247,10 +228,21 @@ class TradingState:
             self.api_errors += 1
 
     def save(self) -> None:
-        """Atomic save of state."""
+        """Async save of state to avoid blocking main loop."""
+        Thread(target=self._save_sync, daemon=True).start()
+
+    def _save_sync(self) -> None:
+        """Actual save logic running in thread."""
         try:
+            # Create a snapshot of positions to avoid iteration errors during modification
+            with self._lock: # Use lock if needed, but positions dict might change. 
+                # Ideally we copy the data we need quickly.
+                # For now, just try/except or copy. 
+                # A simple copy of the dict keys/values is safer.
+                positions_snapshot = self.positions.copy()
+
             positions_data = {}
-            for sym, pos in self.positions.items():
+            for sym, pos in positions_snapshot.items():
                 positions_data[sym] = {
                     "symbol": pos.symbol,
                     "direction": pos.direction,
@@ -455,7 +447,35 @@ class BybitClient:
                 return float(resp["result"]["list"][0]["lastPrice"])
         except Exception:
             pass
+        except Exception:
+            pass
         return None
+
+    def fetch_active_symbols(self) -> List[str]:
+        """Fetch all active USDT perpetual symbols."""
+        try:
+            self.logger.info("Fetching all active USDT perpetuals from Bybit...")
+            resp = self.session.get_instruments_info(category="linear")
+            
+            if resp["retCode"] != 0:
+                self.logger.error(f"Failed to fetch symbols: {resp}")
+                return []
+
+            symbols = [
+                i["symbol"] for i in resp["result"]["list"] 
+                if i["status"] == "Trading" and i["quoteCoin"] == "USDT"
+            ]
+            
+            # Filter out USDC perps just in case, though quoteCoin check covers it
+            symbols = [s for s in symbols if s.endswith("USDT")]
+            
+            self.logger.info(f"Found {len(symbols)} active USDT pairs")
+            return symbols
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching symbols: {e}")
+            # Fallback to a small list if API fails completely
+            return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
 
 class DeviationMagnetStrategy:
@@ -464,46 +484,66 @@ class DeviationMagnetStrategy:
     def __init__(self, config: Config):
         self.config = config
 
-    def calculate_bands_fast(self, buffer: deque) -> Optional[BandData]:
+    def calculate_bands_fast(self, buffer: np.ndarray) -> Optional[BandData]:
         """
         High-performance Bollinger Band calculation using Numpy.
-        Removes Pandas overhead from the critical path.
+        Expects a pre-allocated numpy array of shape (N, 5).
+        Columns: [open, high, low, close, open_time_ts]
         """
+        # buffer is already a numpy array, no conversion needed!
+        # Check if we have enough data (non-nan)
+        # We assume the buffer is filled from the end.
+        
+        # Optimization: We just take the whole buffer or a slice
+        # The buffer might contain NaNs if not full yet.
+        # Let's assume DataManager handles filling and we just take valid data.
+        # Actually, for speed, DataManager should provide a valid view.
+        
         if len(buffer) < self.config.bb_length:
             return None
 
-        # Optimization: Only take the last bb_length items needed
-        subset = list(buffer)[-self.config.bb_length:]
+        # Take last bb_length rows
+        subset = buffer[-self.config.bb_length:]
         
-        # Extract columns to numpy arrays
-        # Structure: [ {'close': 1.0, 'high': ...}, ... ]
-        closes = np.array([x["close"] for x in subset], dtype=np.float64)
+        # Check for NaNs (incomplete history)
+        # If the start of our window is NaN, we don't have enough valid data yet
+        if np.isnan(subset[0, 0]):
+            return None
+        
+        # Columns: 0=open, 1=high, 2=low, 3=close, 4=time
+        opens = subset[:, 0]
+        highs = subset[:, 1]
+        lows = subset[:, 2]
+        closes = subset[:, 3]
         
         # Calculate OHLC4
-        highs = np.array([x["high"] for x in subset], dtype=np.float64)
-        lows = np.array([x["low"] for x in subset], dtype=np.float64)
-        opens = np.array([x["open"] for x in subset], dtype=np.float64)
         ohlc4 = (opens + highs + lows + closes) / 4.0
         
         # Calculate Basis (Mean) and Stdev
         basis = np.mean(ohlc4)
-        stdev = np.std(ohlc4) # Default ddof=0 matches pandas std(ddof=0)
+        stdev = np.std(ohlc4)
         
         # Calculate Bands
         dev = self.config.mult * stdev
         upper3 = basis + (dev * self.config.dev_mult)
         lower3 = basis - (dev * self.config.dev_mult)
         
-        latest = subset[-1]
+        latest_close = closes[-1]
+        latest_high = highs[-1]
+        latest_low = lows[-1]
+        latest_time_ts = subset[-1, 4]
+        
+        # Convert timestamp back to datetime for logic
+        bar_time = datetime.fromtimestamp(latest_time_ts, tz=timezone.utc).replace(tzinfo=None)
         
         return BandData(
-            close=latest["close"],
-            high=latest["high"],
-            low=latest["low"],
+            close=latest_close,
+            high=latest_high,
+            low=latest_low,
             upper3=upper3,
             lower3=lower3,
             basis=basis,
-            bar_time=latest["open_time"],
+            bar_time=bar_time,
         )
 
     def check_entry(self, symbol: str, data: BandData, state: TradingState) -> Tuple[Optional[str], bool]:
@@ -738,11 +778,16 @@ class DataManager:
         self.client = client
         self.symbols = symbols
         
-        # Buffer: {symbol: deque([dict, dict, ...])}
-        # We store raw dicts/records and convert to DF only on demand.
-        self.data_buffers: Dict[str, deque] = {
-            s: deque(maxlen=300) for s in symbols
+        # Buffer: {symbol: np.ndarray}
+        # Shape: (300, 5) -> [open, high, low, close, timestamp]
+        # Pre-allocated for zero-copy updates
+        self.array_size = 300
+        self.data_buffers: Dict[str, np.ndarray] = {
+            s: np.full((self.array_size, 5), np.nan, dtype=np.float64) for s in symbols
         }
+        
+        # Track valid count to know if buffer is full enough
+        self.counts: Dict[str, int] = {s: 0 for s in symbols}
         
         # Fine-grained locking: One lock per symbol
         self.locks: Dict[str, Lock] = defaultdict(Lock)
@@ -761,13 +806,33 @@ class DataManager:
                 df = future.result()
                 if df is not None:
                     with self.locks[sym]:
-                        # Convert DF to list of records for the deque
-                        # to_dict('records') returns [{col: val}, ...]
-                        records = df.to_dict("records")
-                        self.data_buffers[sym].extend(records)
+                        # Fill numpy array
+                        # columns: open, high, low, close
+                        # timestamp needs conversion to float
+                        
+                        # Extract data
+                        opens = df["open"].values
+                        highs = df["high"].values
+                        lows = df["low"].values
+                        closes = df["close"].values
+                        # timestamps to float seconds
+                        times = df["open_time"].astype('int64').values / 10**9
+                        
+                        # Stack
+                        data = np.column_stack((opens, highs, lows, closes, times))
+                        
+                        # Fill buffer (take last N)
+                        length = len(data)
+                        if length >= self.array_size:
+                            self.data_buffers[sym][:] = data[-self.array_size:]
+                            self.counts[sym] = self.array_size
+                        else:
+                            # Fill end
+                            self.data_buffers[sym][-length:] = data
+                            self.counts[sym] = length
         
         # Count non-empty buffers
-        count = sum(1 for b in self.data_buffers.values() if len(b) > 0)
+        count = sum(1 for c in self.counts.values() if c > 0)
         self.logger.info(f"Initialized history for {count}/{len(self.symbols)} symbols")
 
     def on_kline_update(self, message: dict):
@@ -787,72 +852,73 @@ class DataManager:
             return
 
         for kline in message["data"]:
-            # Convert timestamp once
-            new_ts = pd.to_datetime(int(kline["start"]), unit="ms")
+            # Convert timestamp once - FAST (No Pandas)
+            # kline["start"] is ms timestamp
+            ts_float = int(kline["start"]) / 1000.0
             
             # Use specific lock for this symbol only -> High Concurrency
             with self.locks[symbol]:
                 buffer = self.data_buffers[symbol]
+                count = self.counts[symbol]
                 
-                if not buffer:
-                    # Initialize if empty (rare, usually covered by REST init)
-                    new_row = self._parse_kline(kline, new_ts)
-                    buffer.append(new_row)
+                # Prepare row: [open, high, low, close, time]
+                new_row = np.array([
+                    float(kline["open"]),
+                    float(kline["high"]),
+                    float(kline["low"]),
+                    float(kline["close"]),
+                    ts_float
+                ], dtype=np.float64)
+
+                if count == 0:
+                    # First item, put at end
+                    buffer[-1] = new_row
+                    self.counts[symbol] = 1
                     continue
 
-                last_row = buffer[-1]
-                last_ts = last_row["open_time"]
+                last_ts = buffer[-1, 4]
                 
-                if new_ts == last_ts:
+                if ts_float == last_ts:
                     # Update last row in-place (Fastest)
-                    # Modify the dict reference directly
-                    last_row["close"] = float(kline["close"])
-                    last_row["high"] = float(kline["high"])
-                    last_row["low"] = float(kline["low"])
-                    last_row["open"] = float(kline["open"])
-                    last_row["volume"] = float(kline["volume"])
-                    last_row["turnover"] = float(kline["turnover"])
+                    buffer[-1] = new_row
                     
-                elif new_ts > last_ts:
+                elif ts_float > last_ts:
                     # Check for data gaps
-                    time_diff = (new_ts - last_ts).total_seconds() / 60
-                    # If gap > timeframe * 2 (allow 1 missing bar), clear buffer
-                    # Assuming timeframe is in minutes. 
-                    # Note: config.timeframe is string "1", "5" etc.
+                    time_diff = (ts_float - last_ts) / 60.0
                     tf_min = int(self.client.config.timeframe)
-                    if time_diff > tf_min * 5: # Allow small gaps, but reset on large ones
+                    
+                    if time_diff > tf_min * 5: 
                         self.logger.warning(f"⚠️ Data Gap detected for {symbol}: {time_diff:.1f}m. Resetting buffer.")
-                        buffer.clear()
-                        
-                    # deque(maxlen=300) automatically drops oldest
-                    new_row = self._parse_kline(kline, new_ts)
-                    buffer.append(new_row)
+                        # Reset
+                        buffer.fill(np.nan)
+                        buffer[-1] = new_row
+                        self.counts[symbol] = 1
+                    else:
+                        # Shift and append
+                        # Optimized shift: move all items one step left
+                        buffer[:-1] = buffer[1:]
+                        buffer[-1] = new_row
+                        self.counts[symbol] = min(count + 1, self.array_size)
 
     def get_latest_data(self, symbol: str) -> Optional[pd.DataFrame]:
         """Convert buffer to DataFrame for calculation."""
-        # This is now the 'slow' part, but it only happens when Bot requests it,
-        # not on every single tick if we throttled processing (which we do by loop).
-        # Actually, in event-driven mode, this is called on every update.
-        # Creating a DF from 300 dicts is still very fast (~ms).
-        
+        # Used for status display only now
         with self.locks[symbol]:
             buffer = self.data_buffers.get(symbol)
-            if not buffer or len(buffer) < 2:
+            if buffer is None:
                 return None
             
-            # Optimization: pd.DataFrame.from_records is faster than from_dict list
-            return pd.DataFrame.from_records(buffer)
-
-    def _parse_kline(self, kline: dict, ts: datetime) -> dict:
-        return {
-            "open_time": ts,
-            "open": float(kline["open"]),
-            "high": float(kline["high"]),
-            "low": float(kline["low"]),
-            "close": float(kline["close"]),
-            "volume": float(kline["volume"]),
-            "turnover": float(kline["turnover"])
-        }
+            # Filter valid data
+            valid_mask = ~np.isnan(buffer[:, 0])
+            valid_data = buffer[valid_mask]
+            
+            if len(valid_data) == 0:
+                return None
+                
+            df = pd.DataFrame(valid_data, columns=["open", "high", "low", "close", "ts"])
+            # Convert ts back to datetime for display
+            df["open_time"] = pd.to_datetime(df["ts"], unit="s")
+            return df
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -868,7 +934,9 @@ class Bot:
         self.state = TradingState(self.config)
         self.client = BybitClient(self.config, self.state)
         self.strategy = DeviationMagnetStrategy(self.config)
-        self.symbols = load_symbols()
+        self.symbols = self.client.fetch_active_symbols()
+        if not self.symbols:
+            raise ValueError("No symbols found to trade!")
         self.data_manager = DataManager(self.client, self.symbols)
         self.event_queue = queue.Queue()
         self.last_update_time: Dict[str, float] = {}
@@ -877,15 +945,27 @@ class Bot:
     def run(self):
         """Start the bot loop."""
         self.state.load()
-        # self.state.load_trades()
         self._print_header()
 
         self.logger.info("🔄 Starting...")
         
         # 1. Initialize Data
-        self.data_manager.initialize()
+        self._initialize_data()
         
         # 2. Subscribe to WebSockets
+        self._setup_websockets()
+
+        print("⚡ Real-time processing started. Press Ctrl+C to stop.", flush=True)
+
+        # 3. Enter Main Loop
+        self._main_loop()
+
+    def _initialize_data(self):
+        """Fetch initial history."""
+        self.data_manager.initialize()
+
+    def _setup_websockets(self):
+        """Connect and subscribe to WebSockets."""
         self.logger.info("🔌 Connecting to WebSockets...")
         
         def handle_ws_message(message):
@@ -909,8 +989,8 @@ class Bot:
                 callback=handle_ws_message
             )
 
-        print("⚡ Real-time processing started. Press Ctrl+C to stop.", flush=True)
-
+    def _main_loop(self):
+        """Main event loop."""
         last_status_time = time.time()
         last_daily_date = datetime.now(timezone.utc).date()
 
@@ -921,11 +1001,12 @@ class Bot:
                     # Process a batch of events to keep queue drained
                     # But don't block indefinitely
                     for _ in range(50):
-                        symbol = self.event_queue.get_nowait()
+                        # Block for up to 10ms if empty, but wake immediately on event
+                        symbol = self.event_queue.get(timeout=0.01)
                         self._process_symbol_event(symbol)
                         self.event_queue.task_done()
                 except queue.Empty:
-                    time.sleep(0.01)  # Prevent CPU spin
+                    pass  # Queue empty, continue to status checks
 
                 # 2. Periodic Status & Cleanup
                 now = time.time()
@@ -963,32 +1044,34 @@ class Bot:
         """Process strategy for a single symbol upon data update."""
         with self.data_manager.locks[symbol]:
             buffer = self.data_manager.data_buffers.get(symbol)
-            if not buffer:
+            if buffer is None:
                 return
-            # Pass deque directly (thread-safe due to lock)
+            # Pass numpy array directly (thread-safe due to lock)
             data = self.strategy.calculate_bands_fast(buffer)
         if not data:
             return
         
         current_price = data.close
         
-        # Check Exit
-        if symbol in self.state.positions:
-            pos = self.state.positions[symbol]
-            self._update_position_stats(symbol, current_price, data)
-            
-            should_exit, reason = self.strategy.check_exit(pos, current_price)
-            if should_exit:
-                self._execute_exit(symbol, pos, current_price, reason)
-                # Prevent immediate re-entry
-                bar_key = f"{symbol}_{self._fmt_time(data.bar_time)}"
-                self.state.signals_seen[bar_key] = "exit"
-                return
+        # Use state lock for all position reads/writes to ensure consistency with async save
+        with self.state._lock:
+            # Check Exit
+            if symbol in self.state.positions:
+                pos = self.state.positions[symbol]
+                self._update_position_stats(symbol, current_price, data)
+                
+                should_exit, reason = self.strategy.check_exit(pos, current_price)
+                if should_exit:
+                    self._execute_exit(symbol, pos, current_price, reason)
+                    # Prevent immediate re-entry
+                    bar_key = f"{symbol}_{self._fmt_time(data.bar_time)}"
+                    self.state.signals_seen[bar_key] = "exit"
+                    return
 
-        # Check Entry
-        direction, is_dca = self.strategy.check_entry(symbol, data, self.state)
-        if direction:
-            self._execute_entry(symbol, direction, current_price, data.bar_time, is_dca)
+            # Check Entry
+            direction, is_dca = self.strategy.check_entry(symbol, data, self.state)
+            if direction:
+                self._execute_entry(symbol, direction, current_price, data.bar_time, is_dca)
 
     # ... (rest of methods like _fetch_all_data removed as they are replaced by DataManager)
     # Keeping helper methods
