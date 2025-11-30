@@ -522,7 +522,7 @@ class DeviationMagnetStrategy:
         
         # Calculate Basis (Mean) and Stdev on PREVIOUS N candles
         basis = np.mean(ohlc4)
-        stdev = np.std(ohlc4)
+        stdev = np.std(ohlc4, ddof=1)  # Sample stdev to match Pine Script's ta.stdev
         
         # Calculate Bands
         dev = self.config.mult * stdev
