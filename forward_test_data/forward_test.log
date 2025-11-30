@@ -8295,3 +8295,11 @@
 2025-11-30 09:54:19 | INFO | ✅ EXIT: CVXUSDT SHORT @ $1.8440 | PnL: $0.02 (0.27%) | profit_target
 2025-11-30 09:54:19 | INFO |    Stats: Runup: 0.27% | DD: -0.00% | Bars: 13
 2025-11-30 09:54:20 | INFO | 📥 ENTRY: ARPAUSDT SHORT @ $0.0146 ($10)
+2025-11-30 09:54:37 | INFO | 📥 ENTRY: PARTIUSDT LONG @ $0.0955 ($10)
+2025-11-30 09:54:52 | INFO | ✅ EXIT: NMRUSDT SHORT @ $11.1350 | PnL: $0.02 (0.31%) | profit_target
+2025-11-30 09:54:52 | INFO |    Stats: Runup: 0.31% | DD: 0.00% | Bars: 9
+2025-11-30 09:55:06 | INFO | ✅ EXIT: 1000CATUSDT SHORT @ $0.0033 | PnL: $0.02 (0.30%) | profit_target
+2025-11-30 09:55:06 | INFO |    Stats: Runup: 0.30% | DD: 0.00% | Bars: 13
+2025-11-30 09:55:14 | INFO | ✅ EXIT: ARPAUSDT SHORT @ $0.0145 | PnL: $0.03 (0.41%) | profit_target
+2025-11-30 09:55:14 | INFO |    Stats: Runup: 0.41% | DD: 0.00% | Bars: 2
+2025-11-30 09:55:16 | INFO | 📥 DCA #2: RDNTUSDT LONG @ $0.0112 (+$20, total: $30) | Avg: $0.0112
