@@ -568,14 +568,14 @@ class DeviationMagnetStrategy:
             # Get last order price
             last_order_price = pos.orders[-1]["price"]
             
-            if pos.direction == "long" and data.close <= data.lower3:
+            if pos.direction == "long" and data.low <= data.lower3:
                 # DCA Filter: Only buy if price is lower than last entry by at least 0.2%
                 # This prevents filling the bag on flat price action
                 if data.close <= last_order_price * 0.998:
                     state.total_signals += 1
                     return "long", True
             
-            elif pos.direction == "short" and data.close >= data.upper3:
+            elif pos.direction == "short" and data.high >= data.upper3:
                 # DCA Filter: Only sell if price is higher than last entry by at least 0.2%
                 if data.close >= last_order_price * 1.002:
                     state.total_signals += 1
@@ -587,11 +587,11 @@ class DeviationMagnetStrategy:
         if bar_key in state.signals_seen:
             return None, False
 
-        if data.close <= data.lower3:
+        if data.low <= data.lower3:
             state.signals_seen[bar_key] = "long"
             state.total_signals += 1
             return "long", False
-        elif data.close >= data.upper3:
+        elif data.high >= data.upper3:
             state.signals_seen[bar_key] = "short"
             state.total_signals += 1
             return "short", False
