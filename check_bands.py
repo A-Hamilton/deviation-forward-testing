@@ -8,7 +8,7 @@ klines = client.get_kline(
     category="linear",
     symbol="BTCUSDT",
     interval="1",
-    limit=11  # Need 10 for stats + 1 current
+    limit=10  # Need 10 candles INCLUDING current
 )
 
 if klines["retCode"] != 0:
@@ -20,15 +20,14 @@ candles = klines["result"]["list"][::-1]
 
 print(f"Fetched {len(candles)} candles for BTCUSDT\n")
 
-# Take last 11 candles (10 for stats, 1 current)
-recent = candles[-11:]
+# Take last 10 candles (INCLUDING current)
+recent = candles[-10:]
 
-# Calculate OHLC4 on previous 10 candles (exclude last)
-stats_candles = recent[:-1]
+# Calculate OHLC4 on all 10 candles
 ohlc4_values = []
 
-print("Stats Window (Previous 10 candles):")
-for i, c in enumerate(stats_candles):
+print("Stats Window (Last 10 candles INCLUDING current):")
+for i, c in enumerate(recent):
     o = float(c[1])
     h = float(c[2])
     l = float(c[3])

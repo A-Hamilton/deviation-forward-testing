@@ -484,43 +484,41 @@ class DeviationMagnetStrategy:
     def calculate_bands_fast(self, buffer: np.ndarray, count: int, head: int, array_size: int) -> Optional[BandData]:
         """
         High-performance Bollinger Band calculation using Numpy.
-        Uses LAGGED logic (TradingView style):
-        - Stats calculated on previous N candles (excluding current).
-        - Current price compared to bands from previous N candles.
+        Uses CURRENT-BAR logic (TradingView default):
+        - Stats calculated on last N candles (INCLUDING current).
+        - Current price compared to bands calculated from those same N candles.
         
         Expects circular buffer indexing.
         """
-        # We need bb_length + 1 items: N for stats, +1 for current price
-        required_len = self.config.bb_length + 1
+        required_len = self.config.bb_length
         
         if count < required_len:
             return None
 
-        # Extract the last N+1 items in chronological order
+        # Extract the last N items in chronological order (INCLUDING current)
         if count < array_size:
             # Buffer not full, data is linear [0:count]
             subset = buffer[count - required_len : count]
         else:
             # Circular buffer is full
-            # Extract last N+1 items: [head - N, ..., head]
+            # Extract last N items: [head - N + 1, ..., head]
             indices = [(head - required_len + 1 + i) % array_size for i in range(required_len)]
             subset = buffer[indices]
         
-        # Check for NaNs in the STATS window (excluding current)
-        stats_window = subset[:-1]
-        if np.isnan(stats_window[0, 0]):
+        # Check for NaNs in the window
+        if np.isnan(subset[0, 0]):
             return None
         
         # Columns: 0=open, 1=high, 2=low, 3=close, 4=time
-        opens = stats_window[:, 0]
-        highs = stats_window[:, 1]
-        lows = stats_window[:, 2]
-        closes = stats_window[:, 3]
+        opens = subset[:, 0]
+        highs = subset[:, 1]
+        lows = subset[:, 2]
+        closes = subset[:, 3]
         
-        # Calculate OHLC4 on PREVIOUS N candles
+        # Calculate OHLC4 on last N candles (INCLUDING current)
         ohlc4 = (opens + highs + lows + closes) / 4.0
         
-        # Calculate Basis (Mean) and Stdev on PREVIOUS N candles
+        # Calculate Basis (Mean) and Stdev on last N candles (INCLUDING current)
         basis = np.mean(ohlc4)
         stdev = np.std(ohlc4, ddof=1)  # Sample stdev to match Pine Script's ta.stdev
         
@@ -529,7 +527,7 @@ class DeviationMagnetStrategy:
         upper3 = basis + (dev * self.config.dev_mult)
         lower3 = basis - (dev * self.config.dev_mult)
         
-        # Current Candle (The one we are trading)
+        # Current Candle (The last one in the window)
         current_candle = subset[-1]
         latest_close = current_candle[3]
         latest_high = current_candle[1]
