@@ -42,7 +42,7 @@ class Config:
     # Indicator settings
     bb_length: int = 10
     mult: float = 10.0
-    dev_mult: float = 3.0  # Changed to 3.0 to match TV script (upper3 = basis + dev * 3)
+    dev_mult: float = 1.5
 
     # Timing
     timeframe: str = field(default_factory=lambda: os.environ.get("TIMEFRAME", "1"))  # Changed to 1m
