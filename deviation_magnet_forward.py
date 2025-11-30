@@ -54,6 +54,7 @@ class Config:
     # Position management
     base_order_size: float = field(default_factory=lambda: float(os.environ.get("BASE_ORDER_SIZE", "10.0")))
     fee_pct: float = 0.00055  # 0.055% per side (standard taker)
+    maker_fee_pct: float = 0.0002  # 0.02% per side (standard maker)
     profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.1")))
     max_hold_minutes: int = field(default_factory=lambda: int(os.environ.get("MAX_HOLD_MINUTES", "120")))
     
@@ -602,40 +603,48 @@ class DeviationMagnetStrategy:
 
         return None, False
 
-    def check_exit(self, position: Position, current_price: float) -> Tuple[bool, str]:
+    def check_exit(self, position: Position, data: BandData) -> Tuple[bool, str, float]:
+        """
+        Checks for exit conditions.
+        Returns: (should_exit, reason, exit_price)
+        """
         avg_entry = position.avg_entry_price
+        current_price = data.close
         
-        # 1. Base Entry Price Check
+        # 1. Calculate Target Price (Limit Order Logic)
+        # Required % = Target + Round Trip Fees (Entry Taker + Exit Maker)
+        # Note: We use Maker fee for exit because we are simulating a Limit Order
+        required_pct = self.config.profit_target_pct + (self.config.fee_pct * 100) + (self.config.maker_fee_pct * 100)
+        required_pct += 0.01 # Tiny buffer
+
+        target_price = 0.0
+        if position.direction == "long":
+            target_price = avg_entry * (1 + required_pct / 100)
+            # Check if High reached target
+            if data.high >= target_price:
+                return True, "profit_target", target_price
+        else:
+            target_price = avg_entry * (1 - required_pct / 100)
+            # Check if Low reached target
+            if data.low <= target_price:
+                return True, "profit_target", target_price
+
+        # 2. Base Entry Price Check (Safety / Mean Reversion check)
         # We must cross the INITIAL entry price to ensure "mean reversion" completed
-        # Short ($1, $1.2, $1.4) -> Must exit below $1.0
+        # This is a "Market Order" style check (Close price)
         if not position.orders:
-            return False, ""
+            return False, "", 0.0
             
         base_entry_price = position.orders[0]["price"]
         
         if position.direction == "long":
-            # Must be ABOVE base entry
             if current_price <= base_entry_price:
-                return False, ""
-            pnl_pct = (current_price - avg_entry) / avg_entry * 100
+                return False, "", 0.0
         else:
-            # Must be BELOW base entry
             if current_price >= base_entry_price:
-                return False, ""
-            pnl_pct = (avg_entry - current_price) / avg_entry * 100
+                return False, "", 0.0
 
-        # 2. Profit Target + Fees Check
-        # Calculate required target: Profit Target + Round Trip Fees
-        # Fee is paid on entry AND exit. Total fee % approx = fee_pct * 2
-        required_pct = self.config.profit_target_pct + (self.config.fee_pct * 2 * 100)
-        
-        # Add a tiny slippage buffer (e.g. 0.01%) to ensure net positive
-        required_pct += 0.01
-
-        if pnl_pct >= required_pct:
-            return True, "profit_target"
-
-        # 3. Time-based Exit (Optional - keeps existing logic)
+        # 3. Time-based Exit (Market Order)
         now = datetime.now(timezone.utc)
         entry = position.entry_time
         if entry.tzinfo is None:
@@ -643,11 +652,9 @@ class DeviationMagnetStrategy:
         
         hold_minutes = (now - entry).total_seconds() / 60
         if hold_minutes >= self.config.max_hold_minutes:
-            # Even for max hold, we should probably check if we are at least profitable?
-            # Or just bail. Keeping original behavior (bail).
-            return True, "max_hold"
+            return True, "max_hold", current_price
 
-        return False, ""
+        return False, "", 0.0
 
 
 class TradeExecutor:
@@ -699,7 +706,7 @@ class TradeExecutor:
 
         self.state.save()
 
-    def execute_exit(self, symbol: str, pos: Position, price: float, reason: str):
+    def execute_exit(self, symbol: str, pos: Position, price: float, reason: str, is_maker: bool = False):
         now = datetime.now(timezone.utc)
         avg = pos.avg_entry_price
         total_size = pos.total_size
@@ -712,7 +719,11 @@ class TradeExecutor:
         # Fees logic
         entry_fee = total_size * self.config.fee_pct
         notional_exit = total_size * (price / avg)
-        exit_fee = notional_exit * self.config.fee_pct
+        
+        # Use Maker fee if it's a Limit exit (profit_target), else Taker
+        exit_fee_pct = self.config.maker_fee_pct if is_maker else self.config.fee_pct
+        exit_fee = notional_exit * exit_fee_pct
+        
         total_fees = entry_fee + exit_fee
         
         gross_pnl_usd = pnl_pct / 100 * total_size
@@ -1089,9 +1100,10 @@ class Bot:
                 pos = self.state.positions[symbol]
                 self._update_position_stats(symbol, current_price, data)
                 
-                should_exit, reason = self.strategy.check_exit(pos, current_price)
+                should_exit, reason, exit_price = self.strategy.check_exit(pos, data)
                 if should_exit:
-                    self._execute_exit(symbol, pos, current_price, reason)
+                    is_maker = (reason == "profit_target")
+                    self._execute_exit(symbol, pos, exit_price, reason, is_maker)
                     # Prevent immediate re-entry
                     bar_key = f"{symbol}_{self._fmt_time(data.bar_time)}"
                     self.state.signals_seen[bar_key] = "exit"
@@ -1162,7 +1174,7 @@ class Bot:
 
         self.state.save()
 
-    def _execute_exit(self, symbol: str, pos: Position, price: float, reason: str):
+    def _execute_exit(self, symbol: str, pos: Position, price: float, reason: str, is_maker: bool = False):
         # ... existing implementation ...
         now = datetime.now(timezone.utc)
         avg = pos.avg_entry_price
@@ -1175,7 +1187,10 @@ class Bot:
             
         entry_fee = total_size * self.config.fee_pct
         notional_exit = total_size * (price / avg)
-        exit_fee = notional_exit * self.config.fee_pct
+        
+        exit_fee_pct = self.config.maker_fee_pct if is_maker else self.config.fee_pct
+        exit_fee = notional_exit * exit_fee_pct
+        
         total_fees = entry_fee + exit_fee
         
         gross_pnl_usd = pnl_pct / 100 * total_size
