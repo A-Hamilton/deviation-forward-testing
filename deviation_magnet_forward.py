@@ -1223,7 +1223,7 @@ class Bot:
         emoji = "✅" if pnl_usd > 0 else "❌"
         self.logger.info(
             f"{emoji} EXIT: {symbol} {pos.direction.upper()} @ ${price:.4f} | "
-            f"PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%) | {reason}"
+            f"PnL: ${pnl_usd:.2f} (Net) | Price: {pnl_pct:.2f}% (Raw) | {reason}"
         )
         self.logger.info(f"   Stats: Runup: {pos.max_runup_pct:.2f}% | DD: {pos.max_drawdown_pct:.2f}% | Bars: {pos.bars_held}")
 
