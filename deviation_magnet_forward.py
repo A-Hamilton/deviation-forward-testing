@@ -132,13 +132,7 @@ def setup_logging(config: Config) -> logging.Logger:
 # DATA CLASSES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@dataclass
-class DCAOrder:
-    """Single DCA order."""
-    price: float
-    size: float
-    time: datetime
-    bar_time: str
+
 
 @dataclass
 class Position:
@@ -970,6 +964,7 @@ class Bot:
         self.state = TradingState(self.config)
         self.client = BybitClient(self.config, self.state)
         self.strategy = DeviationMagnetStrategy(self.config)
+        self.executor = TradeExecutor(self.config, self.state)
         self.symbols = self.client.fetch_active_symbols()
         if not self.symbols:
             raise ValueError("No symbols found to trade!")
@@ -1098,134 +1093,30 @@ class Bot:
             # Check Exit
             if symbol in self.state.positions:
                 pos = self.state.positions[symbol]
-                self._update_position_stats(symbol, current_price, data)
+                self.executor.update_position_stats(symbol, current_price, data)
                 
                 should_exit, reason, exit_price = self.strategy.check_exit(pos, data)
                 if should_exit:
                     is_maker = (reason == "profit_target")
-                    self._execute_exit(symbol, pos, exit_price, reason, is_maker)
+                    self.executor.execute_exit(symbol, pos, exit_price, reason, is_maker)
                     # Prevent immediate re-entry
-                    bar_key = f"{symbol}_{self._fmt_time(data.bar_time)}"
+                    bar_key = f"{symbol}_{self.executor._fmt_time(data.bar_time)}"
                     self.state.signals_seen[bar_key] = "exit"
                     return
 
             # Check Entry
             direction, is_dca = self.strategy.check_entry(symbol, data, self.state)
             if direction:
-                self._execute_entry(symbol, direction, current_price, data.bar_time, is_dca)
+                self.executor.execute_entry(symbol, direction, current_price, data.bar_time, is_dca)
 
     # ... (rest of methods like _fetch_all_data removed as they are replaced by DataManager)
     # Keeping helper methods
     
-    def _update_position_stats(self, symbol: str, current_price: float, data: BandData):
-        # ... existing implementation ...
-        pos = self.state.positions[symbol]
-        avg = pos.avg_entry_price
-        
-        if pos.direction == "long":
-            pnl_pct = (current_price - avg) / avg * 100
-        else:
-            pnl_pct = (avg - current_price) / avg * 100
-            
-        pos.max_runup_pct = max(pos.max_runup_pct, pnl_pct)
-        pos.max_drawdown_pct = min(pos.max_drawdown_pct, pnl_pct)
-        
-        bar_str = self._fmt_time(data.bar_time)
-        if pos.last_processed_bar != bar_str:
-            pos.bars_held += 1
-            pos.last_processed_bar = bar_str
 
-    def _execute_entry(self, symbol: str, direction: str, price: float, bar_time: datetime, is_dca: bool):
-        # ... existing implementation ...
-        now = datetime.now(timezone.utc)
-        bar_str = self._fmt_time(bar_time)
 
-        if is_dca and symbol in self.state.positions:
-            pos = self.state.positions[symbol]
-            size = pos.total_size * self.config.dca_scale
-            if size <= 0:
-                size = self.config.base_order_size
 
-            pos.orders.append({
-                "price": price,
-                "size": size,
-                "time": now.isoformat(),
-                "bar_time": bar_str
-            })
-            
-            self.logger.info(
-                f"📥 DCA #{pos.num_orders}: {symbol} {direction.upper()} @ ${price:.4f} "
-                f"(+${size:.0f}, total: ${pos.total_size:.0f}) | Avg: ${pos.avg_entry_price:.4f}"
-            )
-        else:
-            initial = {
-                "price": price,
-                "size": self.config.base_order_size,
-                "time": now.isoformat(),
-                "bar_time": bar_str
-            }
-            self.state.positions[symbol] = Position(
-                symbol=symbol,
-                direction=direction,
-                orders=[initial],
-                entry_time=now,
-            )
-            self.logger.info(f"📥 ENTRY: {symbol} {direction.upper()} @ ${price:.4f} (${self.config.base_order_size:.0f})")
 
-        self.state.save()
 
-    def _execute_exit(self, symbol: str, pos: Position, price: float, reason: str, is_maker: bool = False):
-        # ... existing implementation ...
-        now = datetime.now(timezone.utc)
-        avg = pos.avg_entry_price
-        total_size = pos.total_size
-
-        if pos.direction == "long":
-            pnl_pct = (price - avg) / avg * 100
-        else:
-            pnl_pct = (avg - price) / avg * 100
-            
-        entry_fee = total_size * self.config.fee_pct
-        notional_exit = total_size * (price / avg)
-        
-        exit_fee_pct = self.config.maker_fee_pct if is_maker else self.config.fee_pct
-        exit_fee = notional_exit * exit_fee_pct
-        
-        total_fees = entry_fee + exit_fee
-        
-        gross_pnl_usd = pnl_pct / 100 * total_size
-        pnl_usd = gross_pnl_usd - total_fees
-        
-        entry_time = pos.entry_time.replace(tzinfo=timezone.utc) if pos.entry_time.tzinfo is None else pos.entry_time
-        
-        trade = Trade(
-            symbol=symbol,
-            direction=pos.direction,
-            entry_price=avg,
-            exit_price=price,
-            entry_time=entry_time.strftime("%Y-%m-%d %H:%M:%S"),
-            exit_time=now.strftime("%Y-%m-%d %H:%M:%S"),
-            pnl_pct=round(pnl_pct, 4),
-            pnl_usd=round(pnl_usd, 4),
-            hold_seconds=int((now - entry_time).total_seconds()),
-            exit_reason=reason,
-            position_size=total_size,
-            num_dca_orders=pos.num_orders,
-            max_runup_pct=pos.max_runup_pct,
-            max_drawdown_pct=pos.max_drawdown_pct,
-            bars_held=pos.bars_held
-        )
-        
-        self.state.add_trade(trade)
-        del self.state.positions[symbol]
-        self.state.save()
-
-        emoji = "✅" if pnl_usd > 0 else "❌"
-        self.logger.info(
-            f"{emoji} EXIT: {symbol} {pos.direction.upper()} @ ${price:.4f} | "
-            f"PnL: ${pnl_usd:.2f} (Net) | Price: {pnl_pct:.2f}% (Raw) | {reason}"
-        )
-        self.logger.info(f"   Stats: Runup: {pos.max_runup_pct:.2f}% | DD: {pos.max_drawdown_pct:.2f}% | Bars: {pos.bars_held}")
 
     def _daily_report(self, date):
         date_str = str(date)
@@ -1234,8 +1125,7 @@ class Bot:
             total = sum(t.pnl_usd for t in trades)
             self.logger.info(f"📊 {date_str}: {len(trades)} trades | PnL: ${total:.2f}")
 
-    def _fmt_time(self, t: datetime) -> str:
-        return t.isoformat() if hasattr(t, 'isoformat') else str(t)
+
 
     def _print_header(self):
         c = self.config
