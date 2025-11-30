@@ -56,7 +56,7 @@ class Config:
     fee_pct: float = 0.00055  # 0.055% per side (standard taker)
     maker_fee_pct: float = 0.0002  # 0.02% per side (standard maker)
     profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.1")))
-    profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.1")))
+
     
     # DCA settings
     dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "2.0")))
