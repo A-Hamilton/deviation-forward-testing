@@ -26,3 +26,248 @@
 2025-11-30 14:23:00 | INFO | 📥 DCA #5: RLUSDUSDT LONG @ $0.9990 (+$540, total: $810) | Avg: $0.9990
 2025-11-30 14:23:01 | INFO | 📥 DCA #4: FIOUSDT LONG @ $0.0105 (+$180, total: $270) | Avg: $0.0105
 2025-11-30 14:23:27 | INFO | Stopping... saving state
+2025-11-30 17:45:05 | INFO | Fetching all active USDT perpetuals from Bybit...
+2025-11-30 17:45:06 | INFO | Found 431 active USDT pairs
+2025-11-30 17:45:06 | INFO | Restored 5 open positions
+2025-11-30 17:45:06 | INFO | 🔄 Starting...
+2025-11-30 17:45:06 | INFO | Fetching initial history for indicators...
+2025-11-30 17:45:11 | INFO | Initialized history for 431/431 symbols
+2025-11-30 17:45:11 | INFO | 🔌 Connecting to WebSockets...
+2025-11-30 17:45:11 | INFO | 📥 ENTRY: 1000XUSDT LONG @ $0.0231 ($10)
+2025-11-30 17:45:11 | INFO | ✅ EXIT: BELUSDT LONG @ $0.1479 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 17:45:11 | INFO |    Stats: Runup: 1.15% | DD: 0.00% | Bars: 2
+2025-11-30 17:45:11 | INFO | ✅ EXIT: CAMPUSDT LONG @ $0.0077 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 17:45:11 | INFO |    Stats: Runup: 0.89% | DD: 0.00% | Bars: 5
+2025-11-30 17:45:11 | INFO | 📥 DCA #5: FIOUSDT LONG @ $0.0105 (+$540, total: $810) | Avg: $0.0105
+2025-11-30 17:45:11 | INFO | 📥 ENTRY: KNCUSDT SHORT @ $0.2785 ($10)
+2025-11-30 17:45:11 | INFO | ✅ EXIT: REQUSDT LONG @ $0.1115 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 17:45:11 | INFO |    Stats: Runup: 0.28% | DD: 0.00% | Bars: 5
+2025-11-30 17:45:11 | INFO | 📥 DCA #6: RLUSDUSDT LONG @ $0.9990 (+$1620, total: $2430) | Avg: $0.9990
+2025-11-30 17:45:33 | INFO | ✅ EXIT: KNCUSDT SHORT @ $0.2780 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 17:45:33 | INFO |    Stats: Runup: 0.00% | DD: 0.00% | Bars: 1
+2025-11-30 17:46:00 | INFO | 📥 DCA #7: RLUSDUSDT LONG @ $0.9990 (+$4860, total: $7290) | Avg: $0.9990
+2025-11-30 17:46:00 | INFO | 📥 DCA #2: 1000XUSDT LONG @ $0.0231 (+$20, total: $30) | Avg: $0.0231
+2025-11-30 17:46:01 | INFO | 📥 DCA #6: FIOUSDT LONG @ $0.0105 (+$1620, total: $2430) | Avg: $0.0105
+2025-11-30 17:47:00 | INFO | 📥 DCA #8: RLUSDUSDT LONG @ $0.9990 (+$14580, total: $21870) | Avg: $0.9990
+2025-11-30 17:47:00 | INFO | 📥 DCA #3: 1000XUSDT LONG @ $0.0231 (+$60, total: $90) | Avg: $0.0231
+2025-11-30 17:47:00 | INFO | 📥 ENTRY: CLOUDUSDT LONG @ $0.0667 ($10)
+2025-11-30 17:47:01 | INFO | 📥 DCA #7: FIOUSDT LONG @ $0.0105 (+$4860, total: $7290) | Avg: $0.0105
+2025-11-30 17:47:13 | INFO | ✅ EXIT: FIOUSDT LONG @ $0.0105 | PnL: $8.02 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 17:47:13 | INFO |    Stats: Runup: 0.43% | DD: -0.03% | Bars: 7
+2025-11-30 17:48:00 | INFO | 📥 DCA #9: RLUSDUSDT LONG @ $0.9990 (+$43740, total: $65610) | Avg: $0.9990
+2025-11-30 17:48:00 | INFO | 📥 DCA #4: 1000XUSDT LONG @ $0.0231 (+$180, total: $270) | Avg: $0.0231
+2025-11-30 17:48:00 | INFO | 📥 DCA #2: CLOUDUSDT LONG @ $0.0667 (+$20, total: $30) | Avg: $0.0667
+2025-11-30 17:49:00 | INFO | 📥 DCA #10: RLUSDUSDT LONG @ $0.9990 (+$131220, total: $196830) | Avg: $0.9990
+2025-11-30 17:49:00 | INFO | 📥 DCA #5: 1000XUSDT LONG @ $0.0231 (+$540, total: $810) | Avg: $0.0231
+2025-11-30 17:49:00 | INFO | 📥 DCA #3: CLOUDUSDT LONG @ $0.0667 (+$60, total: $90) | Avg: $0.0667
+2025-11-30 17:50:00 | INFO | 📥 ENTRY: ESUSDT LONG @ $0.0975 ($10)
+2025-11-30 17:50:00 | INFO | 📥 DCA #6: 1000XUSDT LONG @ $0.0231 (+$1620, total: $2430) | Avg: $0.0231
+2025-11-30 17:50:00 | INFO | 📥 DCA #4: CLOUDUSDT LONG @ $0.0667 (+$180, total: $270) | Avg: $0.0667
+2025-11-30 17:50:19 | INFO | 📥 ENTRY: A2ZUSDT SHORT @ $0.0033 ($10)
+2025-11-30 17:50:21 | INFO | ✅ EXIT: A2ZUSDT SHORT @ $0.0033 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 17:50:21 | INFO |    Stats: Runup: 0.00% | DD: -0.03% | Bars: 1
+2025-11-30 17:51:00 | INFO | 📥 DCA #2: ESUSDT LONG @ $0.0975 (+$20, total: $30) | Avg: $0.0975
+2025-11-30 17:51:00 | INFO | 📥 DCA #7: 1000XUSDT LONG @ $0.0231 (+$4860, total: $7290) | Avg: $0.0231
+2025-11-30 17:51:00 | INFO | 📥 DCA #5: CLOUDUSDT LONG @ $0.0667 (+$540, total: $810) | Avg: $0.0667
+2025-11-30 17:52:00 | INFO | 📥 DCA #3: ESUSDT LONG @ $0.0975 (+$60, total: $90) | Avg: $0.0975
+2025-11-30 17:52:00 | INFO | 📥 ENTRY: AVAUSDT LONG @ $0.3083 ($10)
+2025-11-30 17:52:00 | INFO | 📥 DCA #8: 1000XUSDT LONG @ $0.0231 (+$14580, total: $21870) | Avg: $0.0231
+2025-11-30 17:52:00 | INFO | 📥 DCA #6: CLOUDUSDT LONG @ $0.0667 (+$1620, total: $2430) | Avg: $0.0667
+2025-11-30 17:52:31 | INFO | 📥 ENTRY: NOMUSDT SHORT @ $0.0110 ($10)
+2025-11-30 17:53:00 | INFO | 📥 DCA #2: AVAUSDT LONG @ $0.3083 (+$20, total: $30) | Avg: $0.3083
+2025-11-30 17:53:00 | INFO | 📥 DCA #9: 1000XUSDT LONG @ $0.0231 (+$43740, total: $65610) | Avg: $0.0231
+2025-11-30 17:53:00 | INFO | 📥 ENTRY: SCRTUSDT LONG @ $0.1449 ($10)
+2025-11-30 17:53:00 | INFO | 📥 DCA #7: CLOUDUSDT LONG @ $0.0667 (+$4860, total: $7290) | Avg: $0.0667
+2025-11-30 17:54:00 | INFO | 📥 DCA #3: AVAUSDT LONG @ $0.3083 (+$60, total: $90) | Avg: $0.3083
+2025-11-30 17:54:00 | INFO | 📥 ENTRY: REQUSDT LONG @ $0.1116 ($10)
+2025-11-30 17:54:00 | INFO | 📥 DCA #10: 1000XUSDT LONG @ $0.0231 (+$131220, total: $196830) | Avg: $0.0231
+2025-11-30 17:54:00 | INFO | 📥 DCA #2: SCRTUSDT LONG @ $0.1449 (+$20, total: $30) | Avg: $0.1449
+2025-11-30 17:54:00 | INFO | 📥 DCA #8: CLOUDUSDT LONG @ $0.0667 (+$14580, total: $21870) | Avg: $0.0667
+2025-11-30 17:54:46 | INFO | 📥 ENTRY: BSVUSDT LONG @ $20.9700 ($10)
+2025-11-30 17:55:00 | INFO | 📥 ENTRY: HIVEUSDT LONG @ $0.1089 ($10)
+2025-11-30 17:55:00 | INFO | 📥 DCA #4: AVAUSDT LONG @ $0.3083 (+$180, total: $270) | Avg: $0.3083
+2025-11-30 17:55:00 | INFO | 📥 DCA #2: REQUSDT LONG @ $0.1116 (+$20, total: $30) | Avg: $0.1116
+2025-11-30 17:55:00 | INFO | 📥 DCA #3: SCRTUSDT LONG @ $0.1449 (+$60, total: $90) | Avg: $0.1449
+2025-11-30 17:56:00 | INFO | 📥 DCA #5: AVAUSDT LONG @ $0.3083 (+$540, total: $810) | Avg: $0.3083
+2025-11-30 17:56:00 | INFO | 📥 DCA #3: REQUSDT LONG @ $0.1116 (+$60, total: $90) | Avg: $0.1116
+2025-11-30 17:56:00 | INFO | 📥 DCA #4: SCRTUSDT LONG @ $0.1449 (+$180, total: $270) | Avg: $0.1449
+2025-11-30 17:56:29 | INFO | 📥 ENTRY: HFTUSDT LONG @ $0.0346 ($10)
+2025-11-30 17:56:56 | INFO | ✅ EXIT: HFTUSDT LONG @ $0.0347 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 17:56:56 | INFO |    Stats: Runup: 0.00% | DD: 0.00% | Bars: 1
+2025-11-30 17:57:00 | INFO | 📥 ENTRY: IDEXUSDT LONG @ $0.0142 ($10)
+2025-11-30 17:57:00 | INFO | 📥 ENTRY: CVXUSDT LONG @ $1.8570 ($10)
+2025-11-30 17:57:00 | INFO | 📥 ENTRY: METISUSDT LONG @ $7.4280 ($10)
+2025-11-30 17:57:00 | INFO | 📥 DCA #6: AVAUSDT LONG @ $0.3083 (+$1620, total: $2430) | Avg: $0.3083
+2025-11-30 17:57:00 | INFO | 📥 DCA #4: REQUSDT LONG @ $0.1116 (+$180, total: $270) | Avg: $0.1116
+2025-11-30 17:57:00 | INFO | 📥 DCA #5: SCRTUSDT LONG @ $0.1449 (+$540, total: $810) | Avg: $0.1449
+2025-11-30 17:57:01 | INFO | 📥 ENTRY: GASUSDT LONG @ $2.2470 ($10)
+2025-11-30 17:57:28 | INFO | 📥 ENTRY: AIOUSDT LONG @ $0.0847 ($10)
+2025-11-30 17:57:29 | INFO | ✅ EXIT: AIOUSDT LONG @ $0.0849 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 17:57:29 | INFO |    Stats: Runup: 0.40% | DD: 0.00% | Bars: 1
+2025-11-30 17:58:00 | INFO | 📥 DCA #2: IDEXUSDT LONG @ $0.0142 (+$20, total: $30) | Avg: $0.0142
+2025-11-30 17:58:00 | INFO | 📥 ENTRY: AINUSDT LONG @ $0.1044 ($10)
+2025-11-30 17:58:00 | INFO | 📥 DCA #2: CVXUSDT LONG @ $1.8570 (+$20, total: $30) | Avg: $1.8570
+2025-11-30 17:58:00 | INFO | 📥 ENTRY: QTUMUSDT LONG @ $1.5730 ($10)
+2025-11-30 17:58:00 | INFO | 📥 ENTRY: ENJUSDT LONG @ $0.0322 ($10)
+2025-11-30 17:58:00 | INFO | 📥 DCA #7: AVAUSDT LONG @ $0.3083 (+$4860, total: $7290) | Avg: $0.3083
+2025-11-30 17:58:00 | INFO | 📥 DCA #5: REQUSDT LONG @ $0.1116 (+$540, total: $810) | Avg: $0.1116
+2025-11-30 17:58:00 | INFO | 📥 DCA #6: SCRTUSDT LONG @ $0.1449 (+$1620, total: $2430) | Avg: $0.1449
+2025-11-30 17:58:01 | INFO | 📥 DCA #2: GASUSDT LONG @ $2.2470 (+$20, total: $30) | Avg: $2.2470
+2025-11-30 17:58:07 | INFO | 📥 ENTRY: OLUSDT SHORT @ $0.0209 ($10)
+2025-11-30 17:58:15 | INFO | ✅ EXIT: OLUSDT SHORT @ $0.0208 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 17:58:15 | INFO |    Stats: Runup: 0.00% | DD: 0.00% | Bars: 1
+2025-11-30 17:58:35 | INFO | 📥 ENTRY: B3USDT LONG @ $0.0011 ($10)
+2025-11-30 17:58:46 | INFO | 📥 ENTRY: ORBSUSDT SHORT @ $0.0112 ($10)
+2025-11-30 17:58:53 | INFO | 📥 ENTRY: CLANKERUSDT SHORT @ $51.4300 ($10)
+2025-11-30 17:58:54 | INFO | ✅ EXIT: CLANKERUSDT SHORT @ $51.3349 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 17:58:54 | INFO |    Stats: Runup: 0.06% | DD: 0.00% | Bars: 1
+2025-11-30 17:59:00 | INFO | 📥 DCA #3: IDEXUSDT LONG @ $0.0142 (+$60, total: $90) | Avg: $0.0142
+2025-11-30 17:59:00 | INFO | 📥 DCA #2: AINUSDT LONG @ $0.1044 (+$20, total: $30) | Avg: $0.1044
+2025-11-30 17:59:00 | INFO | 📥 ENTRY: SNTUSDT LONG @ $0.0165 ($10)
+2025-11-30 17:59:00 | INFO | 📥 DCA #3: CVXUSDT LONG @ $1.8570 (+$60, total: $90) | Avg: $1.8570
+2025-11-30 17:59:00 | INFO | 📥 DCA #2: QTUMUSDT LONG @ $1.5730 (+$20, total: $30) | Avg: $1.5730
+2025-11-30 17:59:00 | INFO | 📥 DCA #2: ENJUSDT LONG @ $0.0322 (+$20, total: $30) | Avg: $0.0322
+2025-11-30 17:59:00 | INFO | 📥 DCA #8: AVAUSDT LONG @ $0.3083 (+$14580, total: $21870) | Avg: $0.3083
+2025-11-30 17:59:00 | INFO | 📥 DCA #6: REQUSDT LONG @ $0.1116 (+$1620, total: $2430) | Avg: $0.1116
+2025-11-30 17:59:00 | INFO | 📥 DCA #7: SCRTUSDT LONG @ $0.1449 (+$4860, total: $7290) | Avg: $0.1449
+2025-11-30 17:59:01 | INFO | 📥 DCA #3: GASUSDT LONG @ $2.2470 (+$60, total: $90) | Avg: $2.2470
+2025-11-30 18:00:00 | INFO | 📥 DCA #4: IDEXUSDT LONG @ $0.0142 (+$180, total: $270) | Avg: $0.0142
+2025-11-30 18:00:00 | INFO | 📥 DCA #3: AINUSDT LONG @ $0.1044 (+$60, total: $90) | Avg: $0.1044
+2025-11-30 18:00:00 | INFO | 📥 DCA #2: SNTUSDT LONG @ $0.0165 (+$20, total: $30) | Avg: $0.0165
+2025-11-30 18:00:00 | INFO | 📥 DCA #4: CVXUSDT LONG @ $1.8570 (+$180, total: $270) | Avg: $1.8570
+2025-11-30 18:00:00 | INFO | 📥 DCA #3: QTUMUSDT LONG @ $1.5730 (+$60, total: $90) | Avg: $1.5730
+2025-11-30 18:00:00 | INFO | 📥 ENTRY: RIFUSDT LONG @ $0.0387 ($10)
+2025-11-30 18:00:00 | INFO | 📥 DCA #9: AVAUSDT LONG @ $0.3083 (+$43740, total: $65610) | Avg: $0.3083
+2025-11-30 18:00:00 | INFO | 📥 DCA #7: REQUSDT LONG @ $0.1116 (+$4860, total: $7290) | Avg: $0.1116
+2025-11-30 18:00:00 | INFO | 📥 DCA #8: SCRTUSDT LONG @ $0.1449 (+$14580, total: $21870) | Avg: $0.1449
+2025-11-30 18:00:02 | INFO | 📥 ENTRY: PONKEUSDT LONG @ $0.0365 ($10)
+2025-11-30 18:00:02 | INFO | 📥 ENTRY: BLASTUSDT SHORT @ $0.0009 ($10)
+2025-11-30 18:00:02 | INFO | 📥 ENTRY: SFPUSDT LONG @ $0.3357 ($10)
+2025-11-30 18:00:04 | INFO | ✅ EXIT: PONKEUSDT LONG @ $0.0365 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:00:04 | INFO |    Stats: Runup: 0.08% | DD: 0.00% | Bars: 1
+2025-11-30 18:00:10 | INFO | 📥 ENTRY: GMXUSDT LONG @ $8.7940 ($10)
+2025-11-30 18:00:12 | INFO | 📥 ENTRY: 1000000CHEEMSUSDT SHORT @ $1.2388 ($10)
+2025-11-30 18:00:14 | INFO | 📥 ENTRY: DBRUSDT SHORT @ $0.0208 ($10)
+2025-11-30 18:00:14 | INFO | 📥 ENTRY: NEWTUSDT LONG @ $0.1156 ($10)
+2025-11-30 18:00:21 | INFO | ✅ EXIT: 1000000CHEEMSUSDT SHORT @ $1.2365 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:00:21 | INFO |    Stats: Runup: 0.00% | DD: 0.00% | Bars: 1
+2025-11-30 18:00:39 | INFO | 📥 ENTRY: RLCUSDT SHORT @ $0.7196 ($10)
+2025-11-30 18:00:47 | INFO | 📥 ENTRY: A2ZUSDT LONG @ $0.0032 ($10)
+2025-11-30 18:00:47 | INFO | ✅ EXIT: DBRUSDT SHORT @ $0.0207 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:00:47 | INFO |    Stats: Runup: 0.00% | DD: 0.00% | Bars: 1
+2025-11-30 18:00:48 | INFO | ✅ EXIT: A2ZUSDT LONG @ $0.0032 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:00:48 | INFO |    Stats: Runup: 0.00% | DD: -1.10% | Bars: 1
+2025-11-30 18:01:00 | INFO | 📥 DCA #5: IDEXUSDT LONG @ $0.0142 (+$540, total: $810) | Avg: $0.0142
+2025-11-30 18:01:00 | INFO | 📥 DCA #4: AINUSDT LONG @ $0.1044 (+$180, total: $270) | Avg: $0.1044
+2025-11-30 18:01:00 | INFO | 📥 DCA #3: SNTUSDT LONG @ $0.0165 (+$60, total: $90) | Avg: $0.0165
+2025-11-30 18:01:00 | INFO | 📥 DCA #2: RIFUSDT LONG @ $0.0387 (+$20, total: $30) | Avg: $0.0387
+2025-11-30 18:01:00 | INFO | 📥 DCA #10: AVAUSDT LONG @ $0.3083 (+$131220, total: $196830) | Avg: $0.3083
+2025-11-30 18:01:00 | INFO | 📥 ENTRY: FXSUSDT LONG @ $0.8347 ($10)
+2025-11-30 18:01:02 | INFO | 📥 ENTRY: FIOUSDT LONG @ $0.0105 ($10)
+2025-11-30 18:01:02 | INFO | 📥 ENTRY: DOLOUSDT SHORT @ $0.0498 ($10)
+2025-11-30 18:01:04 | INFO | 📥 ENTRY: CELOUSDT LONG @ $0.1707 ($10)
+2025-11-30 18:01:04 | INFO | ✅ EXIT: CELOUSDT LONG @ $0.1710 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:01:04 | INFO |    Stats: Runup: 0.00% | DD: -0.06% | Bars: 1
+2025-11-30 18:01:05 | INFO | ✅ EXIT: SCRTUSDT LONG @ $0.1452 | PnL: $24.05 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:01:05 | INFO |    Stats: Runup: 0.28% | DD: -0.00% | Bars: 9
+2025-11-30 18:01:22 | INFO | ✅ EXIT: METISUSDT LONG @ $7.4417 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:01:22 | INFO |    Stats: Runup: 0.26% | DD: -0.07% | Bars: 5
+2025-11-30 18:01:36 | INFO | 📥 ENTRY: QNTUSDT SHORT @ $105.0400 ($10)
+2025-11-30 18:01:39 | INFO | ✅ EXIT: QNTUSDT SHORT @ $104.8457 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:01:39 | INFO |    Stats: Runup: 0.00% | DD: -0.04% | Bars: 1
+2025-11-30 18:01:40 | INFO | 📥 ENTRY: CUSDT LONG @ $0.0788 ($10)
+2025-11-30 18:01:41 | INFO | ✅ EXIT: CUSDT LONG @ $0.0790 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:01:41 | INFO |    Stats: Runup: 0.00% | DD: -0.04% | Bars: 1
+2025-11-30 18:01:41 | INFO | 📥 ENTRY: HYPERUSDT SHORT @ $0.1341 ($10)
+2025-11-30 18:01:42 | INFO | ✅ EXIT: HYPERUSDT SHORT @ $0.1339 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:01:42 | INFO |    Stats: Runup: 0.00% | DD: -0.22% | Bars: 1
+2025-11-30 18:02:00 | INFO | 📥 DCA #4: SNTUSDT LONG @ $0.0165 (+$180, total: $270) | Avg: $0.0165
+2025-11-30 18:02:00 | INFO | 📥 DCA #2: FXSUSDT LONG @ $0.8347 (+$20, total: $30) | Avg: $0.8347
+2025-11-30 18:02:00 | INFO | ✅ EXIT: ORBSUSDT SHORT @ $0.0112 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:02:00 | INFO |    Stats: Runup: 0.27% | DD: 0.00% | Bars: 4
+2025-11-30 18:02:58 | INFO | ✅ EXIT: FIOUSDT LONG @ $0.0106 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:02:58 | INFO |    Stats: Runup: 0.52% | DD: -0.10% | Bars: 2
+2025-11-30 18:03:00 | INFO | 📥 ENTRY: KAVAUSDT LONG @ $0.1256 ($10)
+2025-11-30 18:03:00 | INFO | 📥 DCA #5: SNTUSDT LONG @ $0.0165 (+$540, total: $810) | Avg: $0.0165
+2025-11-30 18:03:00 | INFO | 📥 DCA #2: NOMUSDT SHORT @ $0.0110 (+$20, total: $30) | Avg: $0.0110
+2025-11-30 18:03:03 | INFO | 📥 ENTRY: HAEDALUSDT LONG @ $0.0567 ($10)
+2025-11-30 18:03:03 | INFO | 📥 ENTRY: NFPUSDT LONG @ $0.0298 ($10)
+2025-11-30 18:03:08 | INFO | 📥 ENTRY: ANKRUSDT LONG @ $0.0080 ($10)
+2025-11-30 18:03:24 | INFO | ✅ EXIT: 1000XUSDT LONG @ $0.0232 | PnL: $216.44 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:03:24 | INFO |    Stats: Runup: 0.26% | DD: -0.00% | Bars: 19
+2025-11-30 18:03:35 | INFO | ✅ EXIT: NFPUSDT LONG @ $0.0299 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:03:35 | INFO |    Stats: Runup: 0.00% | DD: 0.00% | Bars: 1
+2025-11-30 18:03:36 | INFO | 📥 ENTRY: FIOUSDT SHORT @ $0.0106 ($10)
+2025-11-30 18:03:37 | INFO | ✅ EXIT: FIOUSDT SHORT @ $0.0106 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:03:37 | INFO |    Stats: Runup: 0.49% | DD: 0.00% | Bars: 1
+2025-11-30 18:04:00 | INFO | 📥 DCA #2: KAVAUSDT LONG @ $0.1256 (+$20, total: $30) | Avg: $0.1256
+2025-11-30 18:04:00 | INFO | 📥 ENTRY: BABYUSDT LONG @ $0.0194 ($10)
+2025-11-30 18:04:00 | INFO | 📥 DCA #6: SNTUSDT LONG @ $0.0165 (+$1620, total: $2430) | Avg: $0.0165
+2025-11-30 18:04:00 | INFO | 📥 DCA #3: NOMUSDT SHORT @ $0.0110 (+$60, total: $90) | Avg: $0.0110
+2025-11-30 18:04:35 | INFO | 📥 ENTRY: 10000ELONUSDT LONG @ $0.0006 ($10)
+2025-11-30 18:04:44 | INFO | 📥 DCA #2: HAEDALUSDT LONG @ $0.0567 (+$20, total: $30) | Avg: $0.0567
+2025-11-30 18:04:58 | INFO | 📥 ENTRY: RVNUSDT LONG @ $0.0084 ($10)
+2025-11-30 18:05:00 | INFO | 📥 DCA #3: KAVAUSDT LONG @ $0.1256 (+$60, total: $90) | Avg: $0.1256
+2025-11-30 18:05:00 | INFO | 📥 DCA #2: BABYUSDT LONG @ $0.0194 (+$20, total: $30) | Avg: $0.0194
+2025-11-30 18:05:00 | INFO | 📥 DCA #7: SNTUSDT LONG @ $0.0165 (+$4860, total: $7290) | Avg: $0.0165
+2025-11-30 18:05:00 | INFO | 📥 DCA #4: NOMUSDT SHORT @ $0.0110 (+$180, total: $270) | Avg: $0.0110
+2025-11-30 18:05:15 | INFO | ✅ EXIT: BLASTUSDT SHORT @ $0.0009 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:05:15 | INFO |    Stats: Runup: 0.22% | DD: 0.00% | Bars: 6
+2025-11-30 18:05:22 | INFO | 📥 ENTRY: PEAQUSDT LONG @ $0.0400 ($10)
+2025-11-30 18:05:23 | INFO | ✅ EXIT: PEAQUSDT LONG @ $0.0401 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:05:23 | INFO |    Stats: Runup: 0.07% | DD: 0.00% | Bars: 1
+2025-11-30 18:05:24 | INFO | ✅ EXIT: DOLOUSDT SHORT @ $0.0497 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:05:24 | INFO |    Stats: Runup: 0.20% | DD: -0.06% | Bars: 5
+2025-11-30 18:05:51 | INFO | 📥 ENTRY: DEEPUSDT SHORT @ $0.0453 ($10)
+2025-11-30 18:05:52 | INFO | ✅ EXIT: DEEPUSDT SHORT @ $0.0452 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:05:52 | INFO |    Stats: Runup: 0.00% | DD: -0.11% | Bars: 1
+2025-11-30 18:06:00 | INFO | 📥 DCA #4: KAVAUSDT LONG @ $0.1256 (+$180, total: $270) | Avg: $0.1256
+2025-11-30 18:06:00 | INFO | 📥 DCA #3: BABYUSDT LONG @ $0.0194 (+$60, total: $90) | Avg: $0.0194
+2025-11-30 18:06:00 | INFO | 📥 DCA #8: SNTUSDT LONG @ $0.0165 (+$14580, total: $21870) | Avg: $0.0165
+2025-11-30 18:06:00 | INFO | 📥 DCA #5: NOMUSDT SHORT @ $0.0110 (+$540, total: $810) | Avg: $0.0110
+2025-11-30 18:07:00 | INFO | 📥 DCA #5: KAVAUSDT LONG @ $0.1256 (+$540, total: $810) | Avg: $0.1256
+2025-11-30 18:07:00 | INFO | 📥 DCA #4: BABYUSDT LONG @ $0.0194 (+$180, total: $270) | Avg: $0.0194
+2025-11-30 18:07:00 | INFO | 📥 DCA #9: SNTUSDT LONG @ $0.0165 (+$43740, total: $65610) | Avg: $0.0165
+2025-11-30 18:07:00 | INFO | 📥 DCA #6: NOMUSDT SHORT @ $0.0110 (+$1620, total: $2430) | Avg: $0.0110
+2025-11-30 18:07:40 | INFO | ✅ EXIT: ESUSDT LONG @ $0.0977 | PnL: $0.10 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:07:40 | INFO |    Stats: Runup: 0.09% | DD: 0.00% | Bars: 18
+2025-11-30 18:08:00 | INFO | 📥 DCA #6: KAVAUSDT LONG @ $0.1256 (+$1620, total: $2430) | Avg: $0.1256
+2025-11-30 18:08:00 | INFO | 📥 DCA #5: BABYUSDT LONG @ $0.0194 (+$540, total: $810) | Avg: $0.0194
+2025-11-30 18:08:00 | INFO | 📥 DCA #10: SNTUSDT LONG @ $0.0165 (+$131220, total: $196830) | Avg: $0.0165
+2025-11-30 18:08:00 | INFO | 📥 DCA #7: NOMUSDT SHORT @ $0.0110 (+$4860, total: $7290) | Avg: $0.0110
+2025-11-30 18:09:00 | INFO | 📥 DCA #7: KAVAUSDT LONG @ $0.1256 (+$4860, total: $7290) | Avg: $0.1256
+2025-11-30 18:09:00 | INFO | 📥 DCA #6: BABYUSDT LONG @ $0.0194 (+$1620, total: $2430) | Avg: $0.0194
+2025-11-30 18:09:00 | INFO | 📥 DCA #8: NOMUSDT SHORT @ $0.0110 (+$14580, total: $21870) | Avg: $0.0110
+2025-11-30 18:09:19 | INFO | ✅ EXIT: RLCUSDT SHORT @ $0.7183 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:09:19 | INFO |    Stats: Runup: 0.25% | DD: 0.00% | Bars: 10
+2025-11-30 18:09:21 | INFO | 📥 DCA #5: CVXUSDT LONG @ $1.8500 (+$540, total: $810) | Avg: $1.8523
+2025-11-30 18:09:27 | INFO | 📥 ENTRY: GRTUSDT LONG @ $0.0502 ($10)
+2025-11-30 18:09:30 | INFO | ✅ EXIT: GRTUSDT LONG @ $0.0503 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:09:30 | INFO |    Stats: Runup: 0.00% | DD: 0.00% | Bars: 1
+2025-11-30 18:10:00 | INFO | 📥 DCA #7: BABYUSDT LONG @ $0.0194 (+$4860, total: $7290) | Avg: $0.0194
+2025-11-30 18:11:31 | INFO | 📥 ENTRY: 1000BTTUSDT LONG @ $0.0004 ($10)
+2025-11-30 18:12:17 | INFO | ✅ EXIT: 1000BTTUSDT LONG @ $0.0004 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:12:17 | INFO |    Stats: Runup: 0.07% | DD: -0.12% | Bars: 2
+2025-11-30 18:13:00 | INFO | 📥 DCA #9: CLOUDUSDT LONG @ $0.0665 (+$43740, total: $65610) | Avg: $0.0666
+2025-11-30 18:13:09 | INFO | 📥 ENTRY: CLANKERUSDT SHORT @ $52.1200 ($10)
+2025-11-30 18:13:10 | INFO | ✅ EXIT: CLANKERUSDT SHORT @ $52.0236 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:13:10 | INFO |    Stats: Runup: 0.04% | DD: 0.00% | Bars: 1
+2025-11-30 18:14:00 | INFO | 📥 DCA #10: CLOUDUSDT LONG @ $0.0665 (+$131220, total: $196830) | Avg: $0.0665
+2025-11-30 18:16:56 | INFO | 📥 ENTRY: ATUSDT LONG @ $0.2287 ($10)
+2025-11-30 18:16:58 | INFO | ✅ EXIT: ATUSDT LONG @ $0.2291 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:16:58 | INFO |    Stats: Runup: 0.00% | DD: 0.00% | Bars: 1
+2025-11-30 18:17:01 | INFO | ✅ EXIT: NOMUSDT SHORT @ $0.0110 | PnL: $24.07 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:17:01 | INFO |    Stats: Runup: 0.36% | DD: 0.00% | Bars: 25
+2025-11-30 18:17:06 | INFO | ✅ EXIT: RIFUSDT LONG @ $0.0388 | PnL: $0.03 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:17:06 | INFO |    Stats: Runup: 0.13% | DD: -0.03% | Bars: 18
+2025-11-30 18:18:05 | INFO | ✅ EXIT: 10000ELONUSDT LONG @ $0.0006 | PnL: $0.01 (Net) | Price: 0.18% (Raw) | profit_target
+2025-11-30 18:18:05 | INFO |    Stats: Runup: 0.27% | DD: -0.14% | Bars: 15
+2025-11-30 18:19:51 | INFO | 📥 ENTRY: ASTRUSDT LONG @ $0.0134 ($10)
+2025-11-30 18:20:58 | INFO | 📥 ENTRY: PARTIUSDT SHORT @ $0.1095 ($10)
+2025-11-30 18:20:59 | INFO | ✅ EXIT: PARTIUSDT SHORT @ $0.1093 | PnL: $0.01 (Net) | Price: 0.19% (Raw) | profit_target
+2025-11-30 18:20:59 | INFO |    Stats: Runup: 0.00% | DD: -0.26% | Bars: 1
+2025-11-30 18:21:00 | INFO | 📥 DCA #8: REQUSDT LONG @ $0.1114 (+$14580, total: $21870) | Avg: $0.1115
+2025-11-30 18:22:00 | INFO | 📥 DCA #9: REQUSDT LONG @ $0.1114 (+$43740, total: $65610) | Avg: $0.1114
+2025-11-30 18:22:00 | INFO | 📥 ENTRY: 1000XUSDT LONG @ $0.0231 ($10)
+2025-11-30 18:23:00 | INFO | 📥 DCA #10: REQUSDT LONG @ $0.1114 (+$131220, total: $196830) | Avg: $0.1114
+2025-11-30 18:23:00 | INFO | 📥 DCA #2: 1000XUSDT LONG @ $0.0231 (+$20, total: $30) | Avg: $0.0231
