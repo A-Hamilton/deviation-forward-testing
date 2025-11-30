@@ -8,7 +8,7 @@ klines = client.get_kline(
     category="linear",
     symbol="BTCUSDT",
     interval="1",
-    limit=10  # Need 10 candles INCLUDING current
+    limit=20  # Need 20 candles INCLUDING current
 )
 
 if klines["retCode"] != 0:
@@ -20,13 +20,13 @@ candles = klines["result"]["list"][::-1]
 
 print(f"Fetched {len(candles)} candles for BTCUSDT\n")
 
-# Take last 10 candles (INCLUDING current)
-recent = candles[-10:]
+# Take last 20 candles (INCLUDING current)
+recent = candles[-20:]
 
-# Calculate OHLC4 on all 10 candles
+# Calculate OHLC4 on all 20 candles
 ohlc4_values = []
 
-print("Stats Window (Last 10 candles INCLUDING current):")
+print("Stats Window (Last 20 candles INCLUDING current):")
 for i, c in enumerate(recent):
     o = float(c[1])
     h = float(c[2])
@@ -41,8 +41,8 @@ ohlc4_array = np.array(ohlc4_values)
 basis = np.mean(ohlc4_array)
 stdev = np.std(ohlc4_array, ddof=1)  # Sample stdev to match Pine Script
 
-# Calculate bands (mult=5, dev_mult=1.5)
-mult = 5.0
+# Calculate bands (mult=3, dev_mult=1.5)
+mult = 3.0
 dev_mult = 1.5
 dev = mult * stdev
 upper3 = basis + (dev * dev_mult)

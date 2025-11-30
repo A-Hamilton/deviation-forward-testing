@@ -40,8 +40,8 @@ class Config:
     """Trading configuration parameters."""
 
     # Indicator settings
-    bb_length: int = 10
-    mult: float = 5.0  # Matches TV: mult=5 * dev_mult=1.5 = 7.5 sigma
+    bb_length: int = 20
+    mult: float = 3.0  # Total: 3.0 * 1.5 = 4.5 sigma
     dev_mult: float = 1.5
 
     # Timing
