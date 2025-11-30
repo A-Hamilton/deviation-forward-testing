@@ -1150,22 +1150,90 @@ class Bot:
         print(f"{'═' * 70}\n", flush=True)
 
     def _print_status(self):
-        # Simplified status
-        print(f"\n{'─' * 60}")
-        print(f"  ⏱  Active Positions: {len(self.state.positions)}")
-        for sym, pos in self.state.positions.items():
-            # Get cached price from DataManager
-            df = self.data_manager.get_latest_data(sym)
-            if df is not None:
-                current = df.iloc[-1]["close"]
-                avg = pos.avg_entry_price
-                pnl = (current - avg)/avg*100 if pos.direction == "long" else (avg - current)/avg*100
-                print(f"      {sym:<10} {pos.direction:<5} {pnl:>+6.2f}% (Hold: {pos.bars_held} bars)")
+        """Comprehensive status display - Important stats at bottom"""
+        now = datetime.now(timezone.utc)
+        session_duration = (now - self.state.start_time).total_seconds() / 3600  # hours
+        
+        print(f"\n{'═' * 80}")
+        print(f"  📊 SESSION STATS")
+        print(f"{'─' * 80}")
+        print(f"  Runtime: {session_duration:.1f}h | Signals: {self.state.total_signals} | Errors: {self.state.api_errors}")
+        
+        # Open Positions Details
+        if self.state.positions:
+            print(f"\n{'─' * 80}")
+            print(f"  📂 OPEN POSITIONS ({len(self.state.positions)})")
+            print(f"{'─' * 80}")
+            
+            total_exposure = 0
+            total_unrealized_pnl = 0
+            
+            # Sort by unrealized PnL (worst first)
+            positions_sorted = []
+            for sym, pos in self.state.positions.items():
+                df = self.data_manager.get_latest_data(sym)
+                if df is not None and len(df) > 0:
+                    current = df.iloc[-1]["close"]
+                    avg = pos.avg_entry_price
+                    pnl_pct = (current - avg)/avg*100 if pos.direction == "long" else (avg - current)/avg*100
+                    
+                    # Calculate unrealized USD (after fees)
+                    entry_fee = pos.total_size * self.config.fee_pct
+                    notional_exit = pos.total_size * (current / avg)
+                    exit_fee = notional_exit * self.config.fee_pct
+                    total_fees = entry_fee + exit_fee
+                    gross_pnl_usd = pnl_pct / 100 * pos.total_size
+                    unrealized_usd = gross_pnl_usd - total_fees
+                    
+                    total_exposure += pos.total_size
+                    total_unrealized_pnl += unrealized_usd
+                    
+                    positions_sorted.append((sym, pos, pnl_pct, unrealized_usd, current))
+            
+            # Sort by PnL% (worst first so you see problems)
+            positions_sorted.sort(key=lambda x: x[2])
+            
+            for sym, pos, pnl_pct, unrealized_usd, current in positions_sorted:
+                dca_info = f"DCA #{pos.num_orders}" if pos.num_orders > 1 else "BASE"
+                direction_emoji = "📈" if pos.direction == "long" else "📉"
+                pnl_emoji = "🟢" if unrealized_usd >= 0 else "🔴"
+                
+                print(f"  {pnl_emoji} {sym:<12} {direction_emoji} {pos.direction.upper():<5} | "
+                      f"{dca_info:<8} | ${pos.total_size:>7.0f} | "
+                      f"{pnl_pct:>+6.2f}% (${unrealized_usd:>+6.2f}) | "
+                      f"Hold: {pos.bars_held}m | DD: {pos.max_drawdown_pct:>+5.2f}%")
+            
+            print(f"{'─' * 80}")
+            print(f"  💰 Total Exposure: ${total_exposure:,.0f}")
+            print(f"  💵 Unrealized PnL: ${total_unrealized_pnl:>+,.2f}")
+        
+        else:
+            print(f"\n{'─' * 80}")
+            print(f"  📂 OPEN POSITIONS: None")
+        
+        # Realized PnL (AT BOTTOM - Most Important)
+        print(f"\n{'═' * 80}")
+        print(f"  📈 REALIZED PNL")
+        print(f"{'═' * 80}")
         
         if self.state.trades:
-            total_pnl = sum(t.pnl_usd for t in self.state.trades)
-            print(f"  📈 Total PnL: ${total_pnl:.2f} ({len(self.state.trades)} trades)")
-        print(f"{'─' * 60}\n", flush=True)
+            total_realized = sum(t.pnl_usd for t in self.state.trades)
+            wins = [t for t in self.state.trades if t.pnl_usd > 0]
+            losses = [t for t in self.state.trades if t.pnl_usd <= 0]
+            win_rate = len(wins) / len(self.state.trades) * 100 if self.state.trades else 0
+            
+            avg_hold_time = sum(t.hold_seconds for t in self.state.trades) / len(self.state.trades) / 60 if self.state.trades else 0
+            
+            best_trade = max(self.state.trades, key=lambda t: t.pnl_usd)
+            worst_trade = min(self.state.trades, key=lambda t: t.pnl_usd)
+            
+            print(f"  Total Trades: {len(self.state.trades)} | Wins: {len(wins)} | Losses: {len(losses)} | Win Rate: {win_rate:.1f}%")
+            print(f"  Avg Hold: {avg_hold_time:.1f}m | Best: ${best_trade.pnl_usd:+.2f} ({best_trade.symbol}) | Worst: ${worst_trade.pnl_usd:+.2f} ({worst_trade.symbol})")
+            print(f"\n  💰 TOTAL REALIZED PNL: ${total_realized:>+,.2f}")
+        else:
+            print(f"  No trades yet")
+        
+        print(f"{'═' * 80}\n", flush=True)
 
 
 if __name__ == "__main__":
