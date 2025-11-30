@@ -41,7 +41,7 @@ class Config:
 
     # Indicator settings
     bb_length: int = 10
-    mult: float = 10.0
+    mult: float = 5.0  # Matches TV: mult=5 * dev_mult=1.5 = 7.5 sigma
     dev_mult: float = 1.5
 
     # Timing
