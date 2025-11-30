@@ -41,7 +41,7 @@ class Config:
 
     # Indicator settings
     bb_length: int = 10
-    mult: float = 5.0
+    mult: float = 10.0
     dev_mult: float = 1.5
 
     # Timing
