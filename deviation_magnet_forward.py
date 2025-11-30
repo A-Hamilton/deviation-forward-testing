@@ -222,6 +222,7 @@ class TradingState:
         self.api_errors: int = 0
         self._lock = Lock()
         self.logger = logging.getLogger("deviation_magnet")
+        self.save_lock = Lock()
 
     def increment_errors(self) -> None:
         with self._lock:
@@ -234,37 +235,38 @@ class TradingState:
     def _save_sync(self) -> None:
         """Actual save logic running in thread."""
         try:
-            # Create a snapshot of positions to avoid iteration errors during modification
-            with self._lock: # Use lock if needed, but positions dict might change. 
-                # Ideally we copy the data we need quickly.
-                # For now, just try/except or copy. 
-                # A simple copy of the dict keys/values is safer.
-                positions_snapshot = self.positions.copy()
+            with self.save_lock:
+                # Create a snapshot of positions to avoid iteration errors during modification
+                with self._lock: # Use lock if needed, but positions dict might change. 
+                    # Ideally we copy the data we need quickly.
+                    # For now, just try/except or copy. 
+                    # A simple copy of the dict keys/values is safer.
+                    positions_snapshot = self.positions.copy()
 
-            positions_data = {}
-            for sym, pos in positions_snapshot.items():
-                positions_data[sym] = {
-                    "symbol": pos.symbol,
-                    "direction": pos.direction,
-                    "orders": pos.orders,
-                    "entry_time": pos.entry_time.isoformat(),
-                    "max_runup_pct": pos.max_runup_pct,
-                    "max_drawdown_pct": pos.max_drawdown_pct,
-                    "bars_held": pos.bars_held,
-                    "last_processed_bar": pos.last_processed_bar,
+                positions_data = {}
+                for sym, pos in positions_snapshot.items():
+                    positions_data[sym] = {
+                        "symbol": pos.symbol,
+                        "direction": pos.direction,
+                        "orders": pos.orders,
+                        "entry_time": pos.entry_time.isoformat(),
+                        "max_runup_pct": pos.max_runup_pct,
+                        "max_drawdown_pct": pos.max_drawdown_pct,
+                        "bars_held": pos.bars_held,
+                        "last_processed_bar": pos.last_processed_bar,
+                    }
+
+                state_data = {
+                    "positions": positions_data,
+                    "start_time": self.start_time.isoformat(),
+                    "total_signals": self.total_signals,
+                    "api_errors": self.api_errors,
                 }
 
-            state_data = {
-                "positions": positions_data,
-                "start_time": self.start_time.isoformat(),
-                "total_signals": self.total_signals,
-                "api_errors": self.api_errors,
-            }
-
-            temp_file = self.config.state_file.with_suffix(".tmp")
-            with open(temp_file, "w") as f:
-                json.dump(state_data, f, indent=2)
-            temp_file.replace(self.config.state_file)
+                temp_file = self.config.state_file.with_suffix(".tmp")
+                with open(temp_file, "w") as f:
+                    json.dump(state_data, f, indent=2)
+                temp_file.replace(self.config.state_file)
             
         except Exception as e:
             self.logger.error(f"Failed to save state: {e}")
@@ -562,6 +564,7 @@ class DeviationMagnetStrategy:
             pos = state.positions[symbol]
             
             if pos.last_bar_time == bar_time_str:
+                # logging.debug(f"Skipping {symbol}: Already acted on bar {bar_time_str}")
                 return None, False  # Already acted this bar
             
             if pos.num_orders >= self.config.max_dca_orders:
@@ -743,7 +746,7 @@ class TradeExecutor:
         emoji = "✅" if pnl_usd > 0 else "❌"
         self.logger.info(
             f"{emoji} EXIT: {symbol} {pos.direction.upper()} @ ${price:.4f} | "
-            f"PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%) | {reason}"
+            f"PnL: ${pnl_usd:.2f} (Net) | Price: {pnl_pct:.2f}% (Raw) | {reason}"
         )
         self.logger.info(f"   Stats: Runup: {pos.max_runup_pct:.2f}% | DD: {pos.max_drawdown_pct:.2f}% | Bars: {pos.bars_held}")
 
