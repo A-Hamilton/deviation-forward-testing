@@ -56,7 +56,7 @@ class Config:
     fee_pct: float = 0.00055  # 0.055% per side (standard taker)
     maker_fee_pct: float = 0.0002  # 0.02% per side (standard maker)
     profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.1")))
-    max_hold_minutes: int = field(default_factory=lambda: int(os.environ.get("MAX_HOLD_MINUTES", "120")))
+    profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.1")))
     
     # DCA settings
     dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "2.0")))
@@ -569,14 +569,14 @@ class DeviationMagnetStrategy:
             last_order_price = pos.orders[-1]["price"]
             
             if pos.direction == "long" and data.close <= data.lower3:
-                # DCA Filter: Only buy if price is lower than last entry
-                if data.close < last_order_price:
+                # DCA Filter: Only buy if price is lower than or equal to last entry
+                if data.close <= last_order_price:
                     state.total_signals += 1
                     return "long", True
             
             elif pos.direction == "short" and data.close >= data.upper3:
-                # DCA Filter: Only sell if price is higher than last entry
-                if data.close > last_order_price:
+                # DCA Filter: Only sell if price is higher than or equal to last entry
+                if data.close >= last_order_price:
                     state.total_signals += 1
                     return "short", True
             
@@ -602,6 +602,10 @@ class DeviationMagnetStrategy:
         Checks for exit conditions.
         Returns: (should_exit, reason, exit_price)
         """
+        # Safety check first
+        if not position.orders:
+            return False, "", 0.0
+
         avg_entry = position.avg_entry_price
         current_price = data.close
         
@@ -626,9 +630,6 @@ class DeviationMagnetStrategy:
         # 2. Base Entry Price Check (Safety / Mean Reversion check)
         # We must cross the INITIAL entry price to ensure "mean reversion" completed
         # This is a "Market Order" style check (Close price)
-        if not position.orders:
-            return False, "", 0.0
-            
         base_entry_price = position.orders[0]["price"]
         
         if position.direction == "long":
@@ -637,16 +638,6 @@ class DeviationMagnetStrategy:
         else:
             if current_price >= base_entry_price:
                 return False, "", 0.0
-
-        # 3. Time-based Exit (Market Order)
-        now = datetime.now(timezone.utc)
-        entry = position.entry_time
-        if entry.tzinfo is None:
-            entry = entry.replace(tzinfo=timezone.utc)
-        
-        hold_minutes = (now - entry).total_seconds() / 60
-        if hold_minutes >= self.config.max_hold_minutes:
-            return True, "max_hold", current_price
 
         return False, "", 0.0
 
