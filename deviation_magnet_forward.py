@@ -474,6 +474,17 @@ class BybitClient:
             # Fallback to a small list if API fails completely
             return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
+    def check_symbol_status(self, symbol: str) -> str:
+        """Check if a symbol is still trading. Returns 'Trading', 'Closed', or 'Unknown'."""
+        try:
+            resp = self.session.get_instruments_info(category="linear", symbol=symbol)
+            if resp["retCode"] == 0 and resp["result"]["list"]:
+                return resp["result"]["list"][0]["status"]
+            return "Unknown"
+        except Exception as e:
+            self.logger.error(f"Status check failed for {symbol}: {e}")
+            return "Error"
+
 
 class DeviationMagnetStrategy:
     """Core strategy logic."""
@@ -985,29 +996,29 @@ class Bot:
         """Fetch initial history."""
         self.data_manager.initialize()
 
+    def _handle_ws_message(self, message):
+        try:
+            self.data_manager.on_kline_update(message)
+            # Queue event for processing in main thread
+            topic = message.get("topic", "")
+            if "kline" in topic:
+                symbol = topic.split(".")[-1]
+                self.last_update_time[symbol] = time.time()
+                self.event_queue.put(symbol)
+        except Exception as e:
+            self.logger.error(f"WS Handler Error: {e}")
+
     def _setup_websockets(self):
         """Connect and subscribe to WebSockets."""
         self.logger.info("🔌 Connecting to WebSockets...")
         
-        def handle_ws_message(message):
-            try:
-                self.data_manager.on_kline_update(message)
-                # Queue event for processing in main thread
-                topic = message.get("topic", "")
-                if "kline" in topic:
-                    symbol = topic.split(".")[-1]
-                    self.last_update_time[symbol] = time.time()
-                    self.event_queue.put(symbol)
-            except Exception as e:
-                self.logger.error(f"WS Handler Error: {e}")
-
         # Subscribe to all symbols
         # Note: Pybit handles the connection loop
         for symbol in self.symbols:
             self.client.ws.kline_stream(
                 interval=int(self.config.timeframe),
                 symbol=symbol,
-                callback=handle_ws_message
+                callback=self._handle_ws_message
             )
 
     def _main_loop(self):
@@ -1058,8 +1069,42 @@ class Bot:
         now = time.time()
         for symbol in self.symbols:
             last = self.last_update_time.get(symbol, now)
-            if now - last > self.watchdog_threshold:
-                self.logger.warning(f"⚠️ WATCHDOG: No data for {symbol} in {now - last:.1f}s!")
+            diff = now - last
+            if diff > self.watchdog_threshold:
+                self.logger.warning(f"⚠️ WATCHDOG: No data for {symbol} in {diff:.1f}s! Checking status...")
+                
+                # 1. Check if Delisted / Not Trading
+                status = self.client.check_symbol_status(symbol)
+                
+                if status not in ["Trading", "PreLaunch"]:
+                    self.logger.warning(f"🚨 CRITICAL: {symbol} status is '{status}'. Potential DELISTING!")
+                    
+                    # Emergency Exit if position exists
+                    with self.state._lock:
+                        if symbol in self.state.positions:
+                            self.logger.warning(f"🚨 Force closing position for {symbol} due to invalid status.")
+                            pos = self.state.positions[symbol]
+                            # Try to get a price, any price
+                            price = self.client.get_current_price(symbol) or pos.avg_entry_price
+                            self.executor.execute_exit(symbol, pos, price, "delisted_emergency")
+                    
+                    # Stop tracking
+                    if symbol in self.symbols:
+                        self.symbols.remove(symbol)
+                    continue
+
+                # 2. Attempt to re-subscribe
+                self.logger.info(f"🔄 Symbol {symbol} is {status}. Re-subscribing to WS...")
+                try:
+                    self.client.ws.kline_stream(
+                        interval=int(self.config.timeframe),
+                        symbol=symbol,
+                        callback=self._handle_ws_message
+                    )
+                    # Reset timer to give it a chance to recover without spamming logs
+                    self.last_update_time[symbol] = now
+                except Exception as e:
+                    self.logger.error(f"Failed to re-subscribe {symbol}: {e}")
 
     def _process_symbol_event(self, symbol: str):
         """Process strategy for a single symbol upon data update."""
