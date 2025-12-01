@@ -201,6 +201,7 @@ class BandData:
     lower3: float
     basis: float
     bar_time: datetime
+    avg_volatility_pct: float  # Average candle size (high-low as % of close)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -567,6 +568,7 @@ class DeviationMagnetStrategy:
             lower3=lower3,
             basis=basis,
             bar_time=bar_time,
+            avg_volatility_pct=avg_candle_size_pct,
         )
 
     def check_entry(self, symbol: str, data: BandData, state: TradingState) -> Tuple[Optional[str], bool]:
@@ -620,9 +622,9 @@ class DeviationMagnetStrategy:
 
     def check_exit(self, position: Position, data: BandData) -> Tuple[bool, str, float]:
         """
-        Mean Reversion Exit Logic:
-        - Shorts: Exit when price crosses BELOW upper3 AND position is profitable
-        - Longs: Exit when price crosses ABOVE lower3 AND position is profitable
+        Volatility-Based Exit Logic:
+        - TP set to average candle volatility minus fees
+        - Adapts automatically to each pair's typical movement range
         """
         # Safety check first
         if not position.orders:
@@ -631,27 +633,24 @@ class DeviationMagnetStrategy:
         avg_entry = position.avg_entry_price
         current_price = data.close
         
-        # Calculate if position is profitable (after fees)
-        entry_fee = position.total_size * self.config.fee_pct
-        exit_fee = position.total_size * (current_price / avg_entry) * self.config.maker_fee_pct
-        total_fees = entry_fee + exit_fee
+        # Calculate TP based on volatility
+        # TP = avg_volatility -fees (both entry taker + exit maker)
+        total_fee_pct = (self.config.fee_pct + self.config.maker_fee_pct) * 100
+        target_pct = data.avg_volatility_pct - total_fee_pct
+        
+        # Ensure minimum profit (at least cover fees + tiny buffer)
+        target_pct = max(target_pct, total_fee_pct + 0.01)
         
         if position.direction == "long":
-            # Calculate gross PnL
-            gross_pnl = ((current_price - avg_entry) / avg_entry) * position.total_size
-            net_pnl = gross_pnl - total_fees
-            
-            # Exit if: price crossed ABOVE lower3 AND profitable
-            if data.close >= data.lower3 and net_pnl > 0:
-                return True, "mean_reversion", current_price
+            target_price = avg_entry * (1 + target_pct / 100)
+            # Check if High reached target (limit order simulation)
+            if data.high >= target_price:
+                return True, "volatility_tp", target_price
         else:
-            # Short: gross PnL
-            gross_pnl = ((avg_entry - current_price) / avg_entry) * position.total_size
-            net_pnl = gross_pnl - total_fees
-            
-            # Exit if: price crossed BELOW upper3 AND profitable
-            if data.close <= data.upper3 and net_pnl > 0:
-                return True, "mean_reversion", current_price
+            target_price = avg_entry * (1 - target_pct / 100)
+            # Check if Low reached target (limit order simulation)
+            if data.low <= target_price:
+                return True, "volatility_tp", target_price
 
         return False, "", 0.0
 
