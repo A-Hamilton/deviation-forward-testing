@@ -686,25 +686,22 @@ class DeviationMagnetStrategy:
         return None, False
 
     def check_exit(self, position: Position, data: BandData) -> Tuple[bool, str, float]:
-        """Volatility-Based Exit Logic."""
+        """Volatility-Based Exit Logic.
+        
+        TP = avg candle volatility + total fees
+        This ensures we capture the typical price movement PLUS cover all trading costs.
+        """
         # Safety check first
         if not position.orders:
             return False, "", 0.0
 
         # Cache as locals for faster access
         avg_entry = position.avg_entry_price
-        total_fee_pct = self.config.total_fee_pct_for_tp
+        total_fee_pct = self.config.total_fee_pct_for_tp  # ~0.17%
         direction = position.direction
         
-        # Calculate TP based on volatility
-        target_pct = data.avg_volatility_pct - total_fee_pct
-        
-        # Ensure minimum profit (fees + meaningful buffer for actual profit)
-        # total_fee_pct is ~0.17%, we want at least 0.10% NET profit after fees
-        # This ensures $0.01+ profit on $10 positions even with rounding
-        min_target = total_fee_pct + 0.10
-        if target_pct < min_target:
-            target_pct = min_target
+        # TP = volatility + fees (capture avg movement AND cover costs)
+        target_pct = data.avg_volatility_pct + total_fee_pct
         
         # Pre-compute multiplier
         pct_mult = target_pct / 100
