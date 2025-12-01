@@ -646,14 +646,16 @@ class DeviationMagnetStrategy:
             direction = pos.direction
             
             if direction == "long" and data_low <= lower3:
-                # DCA Filter: Only buy if price is lower than last entry by at least 0.2%
-                if data.close <= last_order_price * self._DCA_LONG_THRESHOLD:
+                # DCA Filter: Only buy if band price is lower than last entry by at least 0.2%
+                # Use lower3 (the actual entry price) not close
+                if lower3 <= last_order_price * self._DCA_LONG_THRESHOLD:
                     state.total_signals += 1
                     return "long", True
             
             elif direction == "short" and data_high >= upper3:
-                # DCA Filter: Only sell if price is higher than last entry by at least 0.2%
-                if data.close >= last_order_price * self._DCA_SHORT_THRESHOLD:
+                # DCA Filter: Only sell if band price is higher than last entry by at least 0.2%
+                # Use upper3 (the actual entry price) not close
+                if upper3 >= last_order_price * self._DCA_SHORT_THRESHOLD:
                     state.total_signals += 1
                     return "short", True
             
@@ -697,8 +699,9 @@ class DeviationMagnetStrategy:
         # Calculate TP based on volatility
         target_pct = data.avg_volatility_pct - total_fee_pct
         
-        # Ensure minimum profit (at least cover fees + tiny buffer)
-        min_target = total_fee_pct + 0.01
+        # Ensure minimum profit (fees + meaningful buffer for actual profit)
+        # total_fee_pct is ~0.17%, we want at least 0.05% NET profit after fees
+        min_target = total_fee_pct + 0.05
         if target_pct < min_target:
             target_pct = min_target
         
@@ -707,10 +710,17 @@ class DeviationMagnetStrategy:
         
         if direction == "long":
             target_price = avg_entry * (1 + pct_mult)
+            # For longs: entry is at lower3 (low of candle touched it)
+            # TP requires HIGH to reach target - this is valid because:
+            # - Entry happens when LOW touches lower3
+            # - TP happens when HIGH reaches target (different part of candle)
+            # - On same bar: if high already >= target when low touched entry, it's a valid spike profit
             if data.high >= target_price:
                 return True, "volatility_tp", target_price
         else:
             target_price = avg_entry * (1 - pct_mult)
+            # For shorts: entry is at upper3 (high of candle touched it)  
+            # TP requires LOW to reach target
             if data.low <= target_price:
                 return True, "volatility_tp", target_price
 
