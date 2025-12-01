@@ -1,1 +1,0 @@
-analyze trades, seems to be some of the 1m data is missing and gets updated every 5-15m causing dcas to be triggered at the same price. perhaps filter these tickers out perhaps a volume filter or something that like whenever we first grab to ensure all tickers get updated every minute
