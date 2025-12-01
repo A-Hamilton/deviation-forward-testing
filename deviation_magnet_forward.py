@@ -75,7 +75,7 @@ class Config:
     
     # DCA settings
     dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "2.0")))
-    max_dca_orders: int = field(default_factory=lambda: int(os.environ.get("MAX_DCA_ORDERS", "10")))
+    max_dca_orders: int = field(default_factory=lambda: int(os.environ.get("MAX_DCA_ORDERS", "2")))
 
     # Memory management
     max_signals_cache: int = 2000
@@ -715,8 +715,8 @@ class TradeExecutor:
 
         if is_dca and symbol in self.state.positions:
             pos = self.state.positions[symbol]
-            # Size = Current Total Exposure * 2 (doubles total exposure each DCA)
-            size = pos.total_size * 2
+            # Size = Current Total Exposure * 5 (aggressive averaging down)
+            size = pos.total_size * 5
             
             # Fallback
             if size <= 0:
