@@ -1,98 +1,1093 @@
 {
   "positions": {
-    "ESPORTSUSDT": {
-      "symbol": "ESPORTSUSDT",
-      "direction": "short",
-      "orders": [
-        {
-          "price": 0.4452,
-          "size": 10.0,
-          "time": "2025-11-30T20:13:30.901609+00:00",
-          "bar_time": "2025-11-30T20:13:00"
-        }
-      ],
-      "entry_time": "2025-11-30T20:13:30.901609+00:00",
-      "max_runup_pct": 0.0,
-      "max_drawdown_pct": -0.3122192273135675,
-      "bars_held": 12,
-      "last_processed_bar": "2025-11-30T20:24:00"
-    },
-    "ORBSUSDT": {
-      "symbol": "ORBSUSDT",
+    "RLUSDUSDT": {
+      "symbol": "RLUSDUSDT",
       "direction": "long",
       "orders": [
         {
-          "price": 0.01116,
+          "price": 0.9995,
           "size": 10.0,
-          "time": "2025-11-30T20:14:00.912021+00:00",
-          "bar_time": "2025-11-30T20:14:00"
-        },
-        {
-          "price": 0.01112,
-          "size": 20.0,
-          "time": "2025-11-30T20:21:00.913736+00:00",
-          "bar_time": "2025-11-30T20:21:00"
+          "time": "2025-12-01T03:01:00.704570+00:00",
+          "bar_time": "2025-12-01T03:01:00"
         }
       ],
-      "entry_time": "2025-11-30T20:14:00.912021+00:00",
+      "entry_time": "2025-12-01T03:01:00.704570+00:00",
+      "max_runup_pct": 0.020010005002499047,
+      "max_drawdown_pct": -0.010005002501260631,
+      "bars_held": 490,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "LTCUSDT": {
+      "symbol": "LTCUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 78.21,
+          "size": 10.0,
+          "time": "2025-12-01T03:08:29.236284+00:00",
+          "bar_time": "2025-12-01T03:08:00"
+        },
+        {
+          "price": 77.99,
+          "size": 20.0,
+          "time": "2025-12-01T03:36:29.234637+00:00",
+          "bar_time": "2025-12-01T03:36:00"
+        }
+      ],
+      "entry_time": "2025-12-01T03:08:29.236284+00:00",
+      "max_runup_pct": 0.15343306482547572,
+      "max_drawdown_pct": -1.4646227422178364,
+      "bars_held": 483,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "IDUSDT": {
+      "symbol": "IDUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.07245,
+          "size": 10.0,
+          "time": "2025-12-01T05:01:58.325378+00:00",
+          "bar_time": "2025-12-01T05:01:00"
+        }
+      ],
+      "entry_time": "2025-12-01T05:01:58.325378+00:00",
+      "max_runup_pct": 0.027605244996557796,
+      "max_drawdown_pct": -2.456866804692897,
+      "bars_held": 369,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "POWRUSDT": {
+      "symbol": "POWRUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.08865,
+          "size": 10.0,
+          "time": "2025-12-01T07:45:56.924297+00:00",
+          "bar_time": "2025-12-01T07:45:00"
+        }
+      ],
+      "entry_time": "2025-12-01T07:45:56.924297+00:00",
+      "max_runup_pct": 0.06768189509306767,
+      "max_drawdown_pct": -1.4213197969543114,
+      "bars_held": 205,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "DOGEUSDT": {
+      "symbol": "DOGEUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.13805,
+          "size": 10.0,
+          "time": "2025-12-01T09:05:29.097851+00:00",
+          "bar_time": "2025-12-01T09:05:00"
+        },
+        {
+          "price": 0.13688,
+          "size": 20.0,
+          "time": "2025-12-01T11:04:58.084895+00:00",
+          "bar_time": "2025-12-01T11:04:00"
+        }
+      ],
+      "entry_time": "2025-12-01T09:05:29.097851+00:00",
+      "max_runup_pct": 0.014487504527339547,
+      "max_drawdown_pct": -0.8475190148496953,
+      "bars_held": 126,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "BIOUSDT": {
+      "symbol": "BIOUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.0515,
+          "size": 10.0,
+          "time": "2025-12-01T09:46:59.496453+00:00",
+          "bar_time": "2025-12-01T09:46:00"
+        }
+      ],
+      "entry_time": "2025-12-01T09:46:59.496453+00:00",
+      "max_runup_pct": 0.1747572815533842,
+      "max_drawdown_pct": -1.0097087378640903,
+      "bars_held": 84,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "CETUSUSDT": {
+      "symbol": "CETUSUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.02682,
+          "size": 10.0,
+          "time": "2025-12-01T09:47:43.930818+00:00",
+          "bar_time": "2025-12-01T09:47:00"
+        },
+        {
+          "price": 0.02675,
+          "size": 20.0,
+          "time": "2025-12-01T10:48:23.931688+00:00",
+          "bar_time": "2025-12-01T10:48:00"
+        }
+      ],
+      "entry_time": "2025-12-01T09:47:43.930818+00:00",
+      "max_runup_pct": 0.02490039840638213,
+      "max_drawdown_pct": -0.6338553318419091,
+      "bars_held": 84,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "1000FLOKIUSDT": {
+      "symbol": "1000FLOKIUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.04342,
+          "size": 10.0,
+          "time": "2025-12-01T09:47:44.247194+00:00",
+          "bar_time": "2025-12-01T09:47:00"
+        }
+      ],
+      "entry_time": "2025-12-01T09:47:44.247194+00:00",
+      "max_runup_pct": 0.16121602947950395,
+      "max_drawdown_pct": -1.036388760939657,
+      "bars_held": 84,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "RPLUSDT": {
+      "symbol": "RPLUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 2.346,
+          "size": 10.0,
+          "time": "2025-12-01T09:47:45.380929+00:00",
+          "bar_time": "2025-12-01T09:47:00"
+        },
+        {
+          "price": 2.338,
+          "size": 20.0,
+          "time": "2025-12-01T10:58:38.382164+00:00",
+          "bar_time": "2025-12-01T10:58:00"
+        }
+      ],
+      "entry_time": "2025-12-01T09:47:45.380929+00:00",
+      "max_runup_pct": 0.04262574595054944,
+      "max_drawdown_pct": -0.5967604433077678,
+      "bars_held": 84,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "CTSIUSDT": {
+      "symbol": "CTSIUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.03852,
+          "size": 10.0,
+          "time": "2025-12-01T09:49:04.340786+00:00",
+          "bar_time": "2025-12-01T09:49:00"
+        }
+      ],
+      "entry_time": "2025-12-01T09:49:04.340786+00:00",
+      "max_runup_pct": 0.07788161993770054,
+      "max_drawdown_pct": -0.44132917964692764,
+      "bars_held": 82,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "OGNUSDT": {
+      "symbol": "OGNUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.03434,
+          "size": 10.0,
+          "time": "2025-12-01T09:49:48.949139+00:00",
+          "bar_time": "2025-12-01T09:49:00"
+        },
+        {
+          "price": 0.03423,
+          "size": 20.0,
+          "time": "2025-12-01T11:05:13.029157+00:00",
+          "bar_time": "2025-12-01T11:05:00"
+        }
+      ],
+      "entry_time": "2025-12-01T09:49:48.949139+00:00",
+      "max_runup_pct": 0.08736167734419134,
+      "max_drawdown_pct": -0.32032615026210226,
+      "bars_held": 82,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "BSVUSDT": {
+      "symbol": "BSVUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 19.86,
+          "size": 10.0,
+          "time": "2025-12-01T09:57:56.729332+00:00",
+          "bar_time": "2025-12-01T09:57:00"
+        }
+      ],
+      "entry_time": "2025-12-01T09:57:56.729332+00:00",
+      "max_runup_pct": 0.15105740181269456,
+      "max_drawdown_pct": -0.35246727089627533,
+      "bars_held": 73,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "PENGUUSDT": {
+      "symbol": "PENGUUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.009799,
+          "size": 10.0,
+          "time": "2025-12-01T10:02:18.470219+00:00",
+          "bar_time": "2025-12-01T10:02:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:02:18.470219+00:00",
+      "max_runup_pct": 0.010205122971742015,
+      "max_drawdown_pct": -2.122665578120215,
+      "bars_held": 69,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "REQUSDT": {
+      "symbol": "REQUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.10557,
+          "size": 10.0,
+          "time": "2025-12-01T10:11:43.793819+00:00",
+          "bar_time": "2025-12-01T10:11:00"
+        },
+        {
+          "price": 0.10611,
+          "size": 20.0,
+          "time": "2025-12-01T10:57:06.796850+00:00",
+          "bar_time": "2025-12-01T10:57:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:11:43.793819+00:00",
+      "max_runup_pct": 0.12272255262908642,
+      "max_drawdown_pct": -0.5115089514066617,
+      "bars_held": 60,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "OXTUSDT": {
+      "symbol": "OXTUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.02769,
+          "size": 10.0,
+          "time": "2025-12-01T10:15:50.949457+00:00",
+          "bar_time": "2025-12-01T10:15:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:15:50.949457+00:00",
+      "max_runup_pct": 0.10834236186349674,
+      "max_drawdown_pct": -0.3611412062116266,
+      "bars_held": 55,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "KNCUSDT": {
+      "symbol": "KNCUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.2705,
+          "size": 10.0,
+          "time": "2025-12-01T10:17:22.534284+00:00",
+          "bar_time": "2025-12-01T10:17:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:17:22.534284+00:00",
       "max_runup_pct": 0.0,
-      "max_drawdown_pct": -0.3584229390681013,
+      "max_drawdown_pct": -0.44362292051755225,
+      "bars_held": 54,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "SNTUSDT": {
+      "symbol": "SNTUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.01519,
+          "size": 10.0,
+          "time": "2025-12-01T10:22:46.391934+00:00",
+          "bar_time": "2025-12-01T10:22:00"
+        },
+        {
+          "price": 0.01525,
+          "size": 20.0,
+          "time": "2025-12-01T10:45:29.393982+00:00",
+          "bar_time": "2025-12-01T10:45:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:22:46.391934+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.5252790544977147,
+      "bars_held": 49,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "HEMIUSDT": {
+      "symbol": "HEMIUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.01435,
+          "size": 10.0,
+          "time": "2025-12-01T10:25:33.528741+00:00",
+          "bar_time": "2025-12-01T10:25:00"
+        },
+        {
+          "price": 0.01414,
+          "size": 20.0,
+          "time": "2025-12-01T11:03:53.534528+00:00",
+          "bar_time": "2025-12-01T11:03:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:25:33.528741+00:00",
+      "max_runup_pct": 1.2088665337817472e-14,
+      "max_drawdown_pct": -1.6724738675958113,
+      "bars_held": 46,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "ALPINEUSDT": {
+      "symbol": "ALPINEUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.5627,
+          "size": 10.0,
+          "time": "2025-12-01T10:28:15.467021+00:00",
+          "bar_time": "2025-12-01T10:28:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:28:15.467021+00:00",
+      "max_runup_pct": 0.1599431313310844,
+      "max_drawdown_pct": -0.8530300337657769,
+      "bars_held": 42,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "SOLAYERUSDT": {
+      "symbol": "SOLAYERUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.1956,
+          "size": 10.0,
+          "time": "2025-12-01T10:30:56.823688+00:00",
+          "bar_time": "2025-12-01T10:30:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:30:56.823688+00:00",
+      "max_runup_pct": 0.051124744376286675,
+      "max_drawdown_pct": -0.8691206543967317,
+      "bars_held": 41,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "HIVEUSDT": {
+      "symbol": "HIVEUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.101,
+          "size": 10.0,
+          "time": "2025-12-01T10:34:48.419500+00:00",
+          "bar_time": "2025-12-01T10:34:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:34:48.419500+00:00",
+      "max_runup_pct": 0.09900990099010183,
+      "max_drawdown_pct": -0.0990099009900881,
+      "bars_held": 36,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "ACXUSDT": {
+      "symbol": "ACXUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.05438,
+          "size": 10.0,
+          "time": "2025-12-01T10:37:40.051497+00:00",
+          "bar_time": "2025-12-01T10:37:00"
+        },
+        {
+          "price": 0.05404,
+          "size": 20.0,
+          "time": "2025-12-01T11:02:58.052290+00:00",
+          "bar_time": "2025-12-01T11:02:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:37:40.051497+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.6252298639205591,
+      "bars_held": 33,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "OLUSDT": {
+      "symbol": "OLUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.01892,
+          "size": 10.0,
+          "time": "2025-12-01T10:37:41.132161+00:00",
+          "bar_time": "2025-12-01T10:37:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:37:41.132161+00:00",
+      "max_runup_pct": 0.15856236786470532,
+      "max_drawdown_pct": -0.845665961945034,
+      "bars_held": 34,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "HOMEUSDT": {
+      "symbol": "HOMEUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.02357,
+          "size": 10.0,
+          "time": "2025-12-01T10:37:59.391785+00:00",
+          "bar_time": "2025-12-01T10:37:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:37:59.391785+00:00",
+      "max_runup_pct": 0.1697072549851437,
+      "max_drawdown_pct": -0.6364022061943183,
+      "bars_held": 33,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "BICOUSDT": {
+      "symbol": "BICOUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.05486,
+          "size": 10.0,
+          "time": "2025-12-01T10:41:50.033074+00:00",
+          "bar_time": "2025-12-01T10:41:00"
+        },
+        {
+          "price": 0.05469,
+          "size": 20.0,
+          "time": "2025-12-01T10:45:27.031020+00:00",
+          "bar_time": "2025-12-01T10:45:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:41:50.033074+00:00",
+      "max_runup_pct": 0.018228217280355563,
+      "max_drawdown_pct": -0.7793472966390752,
+      "bars_held": 30,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "DOGUSDT": {
+      "symbol": "DOGUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.001082,
+          "size": 10.0,
+          "time": "2025-12-01T10:41:55.212433+00:00",
+          "bar_time": "2025-12-01T10:41:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:41:55.212433+00:00",
+      "max_runup_pct": 0.1848428835489678,
+      "max_drawdown_pct": -0.4621072088724596,
+      "bars_held": 30,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "SFPUSDT": {
+      "symbol": "SFPUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.3147,
+          "size": 10.0,
+          "time": "2025-12-01T10:41:58.561155+00:00",
+          "bar_time": "2025-12-01T10:41:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:41:58.561155+00:00",
+      "max_runup_pct": 0.15888147442008277,
+      "max_drawdown_pct": -0.19065776930411343,
+      "bars_held": 29,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "OPUSDT": {
+      "symbol": "OPUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.2922,
+          "size": 10.0,
+          "time": "2025-12-01T10:43:40.038010+00:00",
+          "bar_time": "2025-12-01T10:43:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:43:40.038010+00:00",
+      "max_runup_pct": 0.06844626967829498,
+      "max_drawdown_pct": -0.6844626967830258,
+      "bars_held": 28,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "HFTUSDT": {
+      "symbol": "HFTUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.03219,
+          "size": 10.0,
+          "time": "2025-12-01T10:47:58.213625+00:00",
+          "bar_time": "2025-12-01T10:47:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:47:58.213625+00:00",
+      "max_runup_pct": 0.062131096613852695,
+      "max_drawdown_pct": -0.49704877291084315,
+      "bars_held": 23,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "ICXUSDT": {
+      "symbol": "ICXUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.064,
+          "size": 10.0,
+          "time": "2025-12-01T10:48:33.921167+00:00",
+          "bar_time": "2025-12-01T10:48:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:48:33.921167+00:00",
+      "max_runup_pct": 0.031249999999987885,
+      "max_drawdown_pct": -0.203125000000008,
+      "bars_held": 23,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "C98USDT": {
+      "symbol": "C98USDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.02531,
+          "size": 10.0,
+          "time": "2025-12-01T10:48:58.999012+00:00",
+          "bar_time": "2025-12-01T10:48:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:48:58.999012+00:00",
+      "max_runup_pct": 0.11853022520743678,
+      "max_drawdown_pct": -0.553141050967988,
+      "bars_held": 22,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "RVNUSDT": {
+      "symbol": "RVNUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.007764,
+          "size": 10.0,
+          "time": "2025-12-01T10:49:47.718737+00:00",
+          "bar_time": "2025-12-01T10:49:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:49:47.718737+00:00",
+      "max_runup_pct": 0.16743946419371444,
+      "max_drawdown_pct": -0.25759917568263846,
+      "bars_held": 22,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "GMTUSDT": {
+      "symbol": "GMTUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.01544,
+          "size": 10.0,
+          "time": "2025-12-01T10:49:58.352560+00:00",
+          "bar_time": "2025-12-01T10:49:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:49:58.352560+00:00",
+      "max_runup_pct": 0.0647668393782357,
+      "max_drawdown_pct": -0.3886010362694367,
+      "bars_held": 21,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "DEGENUSDT": {
+      "symbol": "DEGENUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.001178,
+          "size": 10.0,
+          "time": "2025-12-01T10:55:34.954568+00:00",
+          "bar_time": "2025-12-01T10:55:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:55:34.954568+00:00",
+      "max_runup_pct": 0.16977928692699903,
+      "max_drawdown_pct": -0.2546689303904893,
+      "bars_held": 15,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "KAIAUSDT": {
+      "symbol": "KAIAUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.0745,
+          "size": 10.0,
+          "time": "2025-12-01T10:56:43.135454+00:00",
+          "bar_time": "2025-12-01T10:56:00"
+        }
+      ],
+      "entry_time": "2025-12-01T10:56:43.135454+00:00",
+      "max_runup_pct": 0.1073825503355661,
+      "max_drawdown_pct": -0.16107382550334914,
+      "bars_held": 15,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "IOTXUSDT": {
+      "symbol": "IOTXUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.00831,
+          "size": 10.0,
+          "time": "2025-12-01T11:00:18.731603+00:00",
+          "bar_time": "2025-12-01T11:00:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:00:18.731603+00:00",
+      "max_runup_pct": 0.02406738868833051,
+      "max_drawdown_pct": -0.24067388688326338,
       "bars_held": 10,
-      "last_processed_bar": "2025-11-30T20:24:00"
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "FLUXUSDT": {
+      "symbol": "FLUXUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.10618,
+          "size": 10.0,
+          "time": "2025-12-01T11:00:33.740652+00:00",
+          "bar_time": "2025-12-01T11:00:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:00:33.740652+00:00",
+      "max_runup_pct": 0.12243360331514316,
+      "max_drawdown_pct": -0.15068751177244266,
+      "bars_held": 10,
+      "last_processed_bar": "2025-12-01T11:10:00"
     },
     "ESUSDT": {
       "symbol": "ESUSDT",
       "direction": "long",
       "orders": [
         {
-          "price": 0.09817,
+          "price": 0.09369,
           "size": 10.0,
-          "time": "2025-11-30T20:18:01.400446+00:00",
-          "bar_time": "2025-11-30T20:18:00"
+          "time": "2025-12-01T11:00:39.411242+00:00",
+          "bar_time": "2025-12-01T11:00:00"
         }
       ],
-      "entry_time": "2025-11-30T20:18:01.400446+00:00",
-      "max_runup_pct": 0.0713048792910264,
+      "entry_time": "2025-12-01T11:00:39.411242+00:00",
+      "max_runup_pct": 0.03202049311559638,
       "max_drawdown_pct": 0.0,
-      "bars_held": 7,
-      "last_processed_bar": "2025-11-30T20:24:00"
+      "bars_held": 11,
+      "last_processed_bar": "2025-12-01T11:10:00"
     },
-    "CROSSUSDT": {
-      "symbol": "CROSSUSDT",
+    "FLRUSDT": {
+      "symbol": "FLRUSDT",
       "direction": "short",
       "orders": [
         {
-          "price": 0.10699,
+          "price": 0.01388,
           "size": 10.0,
-          "time": "2025-11-30T20:20:51.373065+00:00",
-          "bar_time": "2025-11-30T20:20:00"
+          "time": "2025-12-01T11:01:05.391989+00:00",
+          "bar_time": "2025-12-01T11:01:00"
         }
       ],
-      "entry_time": "2025-11-30T20:20:51.373065+00:00",
-      "max_runup_pct": 0.17758669034488805,
-      "max_drawdown_pct": 0.0,
-      "bars_held": 4,
-      "last_processed_bar": "2025-11-30T20:24:00"
+      "entry_time": "2025-12-01T11:01:05.391989+00:00",
+      "max_runup_pct": 0.07204610951008353,
+      "max_drawdown_pct": -0.21613832853026307,
+      "bars_held": 10,
+      "last_processed_bar": "2025-12-01T11:10:00"
     },
-    "GNOUSDT": {
-      "symbol": "GNOUSDT",
+    "RONINUSDT": {
+      "symbol": "RONINUSDT",
       "direction": "long",
       "orders": [
         {
-          "price": 130.09,
+          "price": 0.1548,
           "size": 10.0,
-          "time": "2025-11-30T20:21:17.191480+00:00",
-          "bar_time": "2025-11-30T20:21:00"
+          "time": "2025-12-01T11:02:45.847283+00:00",
+          "bar_time": "2025-12-01T11:02:00"
         }
       ],
-      "entry_time": "2025-11-30T20:21:17.191480+00:00",
-      "max_runup_pct": 0.07686985932815306,
-      "max_drawdown_pct": -0.046121915596896206,
+      "entry_time": "2025-12-01T11:02:45.847283+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.5167958656330718,
+      "bars_held": 8,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "PUMPFUNUSDT": {
+      "symbol": "PUMPFUNUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.002706,
+          "size": 10.0,
+          "time": "2025-12-01T11:02:58.266971+00:00",
+          "bar_time": "2025-12-01T11:02:00"
+        },
+        {
+          "price": 0.002699,
+          "size": 20.0,
+          "time": "2025-12-01T11:04:44.265298+00:00",
+          "bar_time": "2025-12-01T11:04:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:02:58.266971+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.9378084896347496,
+      "bars_held": 8,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "SCRTUSDT": {
+      "symbol": "SCRTUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.1278,
+          "size": 10.0,
+          "time": "2025-12-01T11:02:59.844545+00:00",
+          "bar_time": "2025-12-01T11:02:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:02:59.844545+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.39123630672926485,
+      "bars_held": 8,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "BBUSDT": {
+      "symbol": "BBUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 0.07278,
+          "size": 10.0,
+          "time": "2025-12-01T11:03:24.375269+00:00",
+          "bar_time": "2025-12-01T11:03:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:03:24.375269+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.6732618851332843,
+      "bars_held": 8,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "LDOUSDT": {
+      "symbol": "LDOUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.5878,
+          "size": 10.0,
+          "time": "2025-12-01T11:03:54.119599+00:00",
+          "bar_time": "2025-12-01T11:03:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:03:54.119599+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.34025178632187847,
+      "bars_held": 8,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "PROMUSDT": {
+      "symbol": "PROMUSDT",
+      "direction": "short",
+      "orders": [
+        {
+          "price": 9.179,
+          "size": 10.0,
+          "time": "2025-12-01T11:03:59.626326+00:00",
+          "bar_time": "2025-12-01T11:03:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:03:59.626326+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.22878309184005902,
+      "bars_held": 7,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "IOUSDT": {
+      "symbol": "IOUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.2026,
+          "size": 10.0,
+          "time": "2025-12-01T11:05:06.396978+00:00",
+          "bar_time": "2025-12-01T11:05:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:05:06.396978+00:00",
+      "max_runup_pct": 1.3699691814229476e-14,
+      "max_drawdown_pct": -0.09871668311943632,
+      "bars_held": 6,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "1000PEPEUSDT": {
+      "symbol": "1000PEPEUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.004148,
+          "size": 10.0,
+          "time": "2025-12-01T11:05:29.280786+00:00",
+          "bar_time": "2025-12-01T11:05:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:05:29.280786+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.31340405014464784,
+      "bars_held": 6,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "CAKEUSDT": {
+      "symbol": "CAKEUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 2.27,
+          "size": 10.0,
+          "time": "2025-12-01T11:05:32.437952+00:00",
+          "bar_time": "2025-12-01T11:05:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:05:32.437952+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.13215859030837504,
+      "bars_held": 6,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "LINKUSDT": {
+      "symbol": "LINKUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 12.162,
+          "size": 10.0,
+          "time": "2025-12-01T11:05:46.642430+00:00",
+          "bar_time": "2025-12-01T11:05:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:05:46.642430+00:00",
+      "max_runup_pct": 0.03288932741325078,
+      "max_drawdown_pct": -0.1315573096530177,
+      "bars_held": 6,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "BROCCOLIUSDT": {
+      "symbol": "BROCCOLIUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.01318,
+          "size": 10.0,
+          "time": "2025-12-01T11:05:51.190095+00:00",
+          "bar_time": "2025-12-01T11:05:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:05:51.190095+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.30349013657056223,
+      "bars_held": 6,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "GRTUSDT": {
+      "symbol": "GRTUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.04638,
+          "size": 10.0,
+          "time": "2025-12-01T11:06:43.144669+00:00",
+          "bar_time": "2025-12-01T11:06:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:06:43.144669+00:00",
+      "max_runup_pct": 0.04312203536006724,
+      "max_drawdown_pct": -0.06468305304009338,
+      "bars_held": 5,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "BLURUSDT": {
+      "symbol": "BLURUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.03525,
+          "size": 10.0,
+          "time": "2025-12-01T11:06:50.716118+00:00",
+          "bar_time": "2025-12-01T11:06:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:06:50.716118+00:00",
+      "max_runup_pct": 0.028368794326249825,
+      "max_drawdown_pct": -0.1702127659574399,
+      "bars_held": 5,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "KAITOUSDT": {
+      "symbol": "KAITOUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.6249,
+          "size": 10.0,
+          "time": "2025-12-01T11:06:50.757431+00:00",
+          "bar_time": "2025-12-01T11:06:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:06:50.757431+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.09601536245800048,
+      "bars_held": 5,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "ONTUSDT": {
+      "symbol": "ONTUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.0662,
+          "size": 10.0,
+          "time": "2025-12-01T11:06:51.279737+00:00",
+          "bar_time": "2025-12-01T11:06:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:06:51.279737+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": -0.12084592145014614,
       "bars_held": 4,
-      "last_processed_bar": "2025-11-30T20:24:00"
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "ENJUSDT": {
+      "symbol": "ENJUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.02972,
+          "size": 10.0,
+          "time": "2025-12-01T11:07:15.695318+00:00",
+          "bar_time": "2025-12-01T11:07:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:07:15.695318+00:00",
+      "max_runup_pct": 0.06729475100940685,
+      "max_drawdown_pct": -0.03364737550472093,
+      "bars_held": 4,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "1INCHUSDT": {
+      "symbol": "1INCHUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.1788,
+          "size": 10.0,
+          "time": "2025-12-01T11:07:28.051578+00:00",
+          "bar_time": "2025-12-01T11:07:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:07:28.051578+00:00",
+      "max_runup_pct": 0.055928411633118985,
+      "max_drawdown_pct": 0.0,
+      "bars_held": 4,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "ETCUSDT": {
+      "symbol": "ETCUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 12.887,
+          "size": 10.0,
+          "time": "2025-12-01T11:07:42.327661+00:00",
+          "bar_time": "2025-12-01T11:07:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:07:42.327661+00:00",
+      "max_runup_pct": 0.03103903158221121,
+      "max_drawdown_pct": -0.06983782105998558,
+      "bars_held": 4,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "LISTAUSDT": {
+      "symbol": "LISTAUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.1716,
+          "size": 10.0,
+          "time": "2025-12-01T11:07:50.504250+00:00",
+          "bar_time": "2025-12-01T11:07:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:07:50.504250+00:00",
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": 0.0,
+      "bars_held": 3,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "KAVAUSDT": {
+      "symbol": "KAVAUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.1158,
+          "size": 10.0,
+          "time": "2025-12-01T11:09:41.214765+00:00",
+          "bar_time": "2025-12-01T11:09:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:09:41.214765+00:00",
+      "max_runup_pct": 1.1984272718319913e-14,
+      "max_drawdown_pct": -0.17271157167529524,
+      "bars_held": 2,
+      "last_processed_bar": "2025-12-01T11:10:00"
+    },
+    "JSTUSDT": {
+      "symbol": "JSTUSDT",
+      "direction": "long",
+      "orders": [
+        {
+          "price": 0.04221,
+          "size": 10.0,
+          "time": "2025-12-01T11:10:24.454658+00:00",
+          "bar_time": "2025-12-01T11:10:00"
+        }
+      ],
+      "entry_time": "2025-12-01T11:10:24.454658+00:00",
+      "max_runup_pct": 0.023691068467195125,
+      "max_drawdown_pct": 0.0,
+      "bars_held": 1,
+      "last_processed_bar": "2025-12-01T11:10:00"
     }
   },
-  "start_time": "2025-11-30T20:09:49.503120+00:00",
-  "total_signals": 41,
+  "start_time": "2025-12-01T00:45:08.777654+00:00",
+  "total_signals": 2268,
   "api_errors": 0
 }
