@@ -11,25 +11,37 @@ Usage:
 
 from __future__ import annotations
 
-import json
+import csv
 import logging
 import os
+import queue
 import sys
 import time
 import traceback
-import queue
-from collections import deque, defaultdict
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock, Thread
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta, timezone
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from operator import itemgetter
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple, Any
+from threading import Lock, Thread
+from typing import Dict, List, Optional, Tuple
 
-import pandas as pd
 import numpy as np
-import requests
+import pandas as pd
 from pybit.unified_trading import HTTP, WebSocket
+
+# Use orjson if available (10x faster JSON parsing)
+try:
+    import orjson
+    def json_loads(s): return orjson.loads(s)
+    def json_dumps(obj, indent=None): 
+        opts = orjson.OPT_INDENT_2 if indent else 0
+        return orjson.dumps(obj, option=opts).decode()
+except ImportError:
+    import json as _json
+    json_loads = _json.loads
+    def json_dumps(obj, indent=None): return _json.dumps(obj, indent=indent)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -55,8 +67,8 @@ class Config:
     base_order_size: float = field(default_factory=lambda: float(os.environ.get("BASE_ORDER_SIZE", "10.0")))
     fee_pct: float = 0.00055  # 0.055% per side (standard taker)
     maker_fee_pct: float = 0.0002  # 0.02% per side (standard maker)
+    slippage_pct: float = 0.0005  # 0.05% estimated slippage per side
     profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.1")))
-
     
     # Volatility filter
     min_volatility_pct: float = 0.2  # Minimum avg candle size (high-low as % of close)
@@ -80,6 +92,19 @@ class Config:
     # Data paths
     data_dir: Path = field(default_factory=lambda: Path("forward_test_data"))
 
+    # Pre-computed fee combinations (computed once via __post_init__)
+    entry_cost_pct: float = field(init=False)
+    exit_taker_cost_pct: float = field(init=False)
+    exit_maker_cost_pct: float = field(init=False)
+    total_fee_pct_for_tp: float = field(init=False)  # Used in check_exit
+
+    def __post_init__(self):
+        # Pre-compute fee combinations to avoid repeated arithmetic
+        self.entry_cost_pct = self.fee_pct + self.slippage_pct
+        self.exit_taker_cost_pct = self.fee_pct + self.slippage_pct
+        self.exit_maker_cost_pct = self.maker_fee_pct + self.slippage_pct
+        self.total_fee_pct_for_tp = (self.fee_pct + self.maker_fee_pct + self.slippage_pct * 2) * 100
+
     @property
     def trades_file(self) -> Path:
         return self.data_dir / "trades.json"
@@ -95,9 +120,6 @@ class Config:
     @property
     def log_file(self) -> Path:
         return self.data_dir / "forward_test.log"
-
-
-
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -135,32 +157,45 @@ def setup_logging(config: Config) -> logging.Logger:
 # DATA CLASSES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-
-
-@dataclass
 class Position:
-    """Open trading position."""
-    symbol: str
-    direction: str
-    orders: list
-    entry_time: datetime
+    """Open trading position with __slots__ for memory efficiency."""
+    __slots__ = ('symbol', 'direction', 'orders', 'entry_time', 'max_runup_pct',
+                 'max_drawdown_pct', 'bars_held', 'last_processed_bar',
+                 '_cached_total_size', '_cached_avg_price')
     
-    # Stats
-    max_runup_pct: float = 0.0
-    max_drawdown_pct: float = 0.0
-    bars_held: int = 0
-    last_processed_bar: Optional[str] = None
+    def __init__(self, symbol: str, direction: str, orders: list, entry_time: datetime,
+                 max_runup_pct: float = 0.0, max_drawdown_pct: float = 0.0,
+                 bars_held: int = 0, last_processed_bar: Optional[str] = None):
+        self.symbol = symbol
+        self.direction = direction
+        self.orders = orders
+        self.entry_time = entry_time
+        self.max_runup_pct = max_runup_pct
+        self.max_drawdown_pct = max_drawdown_pct
+        self.bars_held = bars_held
+        self.last_processed_bar = last_processed_bar
+        self._cached_total_size: Optional[float] = None
+        self._cached_avg_price: Optional[float] = None
 
     @property
     def total_size(self) -> float:
-        return sum(o["size"] for o in self.orders)
+        if self._cached_total_size is None:
+            self._cached_total_size = sum(o["size"] for o in self.orders)
+        return self._cached_total_size
 
     @property
     def avg_entry_price(self) -> float:
-        if not self.orders:
-            return 0
-        total_cost = sum(o["price"] * o["size"] for o in self.orders)
-        return total_cost / self.total_size
+        if self._cached_avg_price is None:
+            if not self.orders:
+                return 0.0
+            total_cost = sum(o["price"] * o["size"] for o in self.orders)
+            self._cached_avg_price = total_cost / self.total_size
+        return self._cached_avg_price
+    
+    def invalidate_cache(self) -> None:
+        """Call after modifying orders to reset cached values."""
+        self._cached_total_size = None
+        self._cached_avg_price = None
 
     @property
     def num_orders(self) -> int:
@@ -170,9 +205,9 @@ class Position:
     def last_bar_time(self) -> str:
         return self.orders[-1]["bar_time"] if self.orders else ""
 
-@dataclass
+@dataclass(slots=True)
 class Trade:
-    """Completed trade record."""
+    """Completed trade record. Uses __slots__ for memory efficiency."""
     symbol: str
     direction: str
     entry_price: float
@@ -191,9 +226,9 @@ class Trade:
     max_drawdown_pct: float = 0.0
     bars_held: int = 0
 
-@dataclass
+@dataclass(slots=True)
 class BandData:
-    """Indicator values."""
+    """Indicator values. Uses __slots__ for memory efficiency."""
     close: float
     high: float
     low: float
@@ -210,6 +245,16 @@ class BandData:
 
 class TradingState:
     """Manages trading state with persistence."""
+    
+    __slots__ = ('config', 'positions', 'trades', 'signals_seen', 'start_time',
+                 'total_signals', 'api_errors', '_lock', 'logger', 'save_lock')
+    
+    # Cache Trade field names once (avoid repeated asdict().keys() calls)
+    _TRADE_FIELDS: Tuple[str, ...] = (
+        'symbol', 'direction', 'entry_price', 'exit_price', 'entry_time', 'exit_time',
+        'pnl_pct', 'pnl_usd', 'hold_seconds', 'exit_reason', 'position_size',
+        'num_dca_orders', 'max_runup_pct', 'max_drawdown_pct', 'bars_held'
+    )
 
     def __init__(self, config: Config) -> None:
         self.config = config
@@ -232,14 +277,10 @@ class TradingState:
         Thread(target=self._save_sync, daemon=True).start()
 
     def _save_sync(self) -> None:
-        """Actual save logic running in thread."""
+        """Actual save logic running in background thread."""
         try:
             with self.save_lock:
-                # Create a snapshot of positions to avoid iteration errors during modification
-                with self._lock: # Use lock if needed, but positions dict might change. 
-                    # Ideally we copy the data we need quickly.
-                    # For now, just try/except or copy. 
-                    # A simple copy of the dict keys/values is safer.
+                with self._lock:
                     positions_snapshot = self.positions.copy()
 
                 positions_data = {}
@@ -264,7 +305,7 @@ class TradingState:
 
                 temp_file = self.config.state_file.with_suffix(".tmp")
                 with open(temp_file, "w") as f:
-                    json.dump(state_data, f, indent=2)
+                    f.write(json_dumps(state_data, indent=2))
                 temp_file.replace(self.config.state_file)
             
         except Exception as e:
@@ -277,7 +318,7 @@ class TradingState:
 
         try:
             with open(self.config.state_file, "r") as f:
-                state_data = json.load(f)
+                state_data = json_loads(f.read())
 
             # LOAD POSITIONS
             for sym, data in state_data.get("positions", {}).items():
@@ -298,34 +339,18 @@ class TradingState:
                     last_processed_bar=data.get("last_processed_bar"),
                 )
 
-            # IGNORE: start_time, total_signals, api_errors
-            # We want a fresh session look
-            # if state_data.get("start_time"): ...
-                
             self.logger.info(f"Restored {len(self.positions)} open positions")
         except Exception as e:
             self.logger.error(f"Failed to load state: {e}")
 
     def load_trades(self) -> None:
-        """Load historical trades."""
-        # For new "clean slate" logic, we can just skip loading if user wants
-        # Or we can just log that we found them but start fresh.
-        # But to truly ignore them, we should rename/archive the old file.
-        # For now, let's keep the file but NOT load them into memory stats if a flag is set.
-        # However, simpler approach requested: "ignore these".
-        # Let's check an env var or just not load them if we want a fresh start.
-        
-        # ACTUALLY: The user asked to "ignore these". The cleanest way is to
-        # archive the current trades.json if it exists on startup, or just don't load.
-        # Let's modify this to load ONLY if we want persistence.
-        # Since this is a forward test, maybe we just want to see NEW trades.
-        
+        """Load historical trades from disk."""
         if not self.config.trades_file.exists():
             return
 
         try:
             with open(self.config.trades_file, "r") as f:
-                trades_data = json.load(f)
+                trades_data = json_loads(f.read())
 
             # Cap memory usage
             recent = trades_data[-self.config.trades_memory_cap:]
@@ -354,24 +379,23 @@ class TradingState:
             trades_data = []
             if self.config.trades_file.exists():
                 with open(self.config.trades_file, "r") as f:
-                    trades_data = json.load(f)
+                    trades_data = json_loads(f.read())
 
             trades_data.append(asdict(trade))
 
             temp_file = self.config.trades_file.with_suffix(".tmp")
             with open(temp_file, "w") as f:
-                json.dump(trades_data, f, indent=2)
+                f.write(json_dumps(trades_data, indent=2))
             temp_file.replace(self.config.trades_file)
         except Exception as e:
             self.logger.error(f"Failed to save trade JSON: {e}")
 
     def _save_trade_csv(self, trade: Trade) -> None:
         try:
-            import csv
             file_exists = self.config.trades_csv.exists()
             
             with open(self.config.trades_csv, "a", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=asdict(trade).keys())
+                writer = csv.DictWriter(f, fieldnames=self._TRADE_FIELDS)
                 if not file_exists:
                     writer.writeheader()
                 writer.writerow(asdict(trade))
@@ -387,6 +411,8 @@ class TradingState:
 
 class BybitClient:
     """Handles API interactions via Pybit and WebSockets."""
+    
+    __slots__ = ('config', 'state', 'logger', 'session', 'ws')
 
     def __init__(self, config: Config, state: TradingState):
         self.config = config
@@ -401,8 +427,6 @@ class BybitClient:
             testnet=False,
             channel_type="linear",
         )
-        self.data_buffer: Dict[str, pd.DataFrame] = {}
-        self.data_lock = Lock()
 
     def fetch_history_rest(self, symbol: str, limit: int = 250) -> Optional[pd.DataFrame]:
         """Initial fetch of historical candles."""
@@ -441,13 +465,11 @@ class BybitClient:
             return None
 
     def get_current_price(self, symbol: str) -> Optional[float]:
-        # Fallback to REST if needed, but we should use WS cache ideally
+        """Fallback to REST if needed, but we should use WS cache ideally."""
         try:
             resp = self.session.get_tickers(category="linear", symbol=symbol)
             if resp["retCode"] == 0 and resp["result"]["list"]:
                 return float(resp["result"]["list"][0]["lastPrice"])
-        except Exception:
-            pass
         except Exception:
             pass
         return None
@@ -462,13 +484,13 @@ class BybitClient:
                 self.logger.error(f"Failed to fetch symbols: {resp}")
                 return []
 
+            # Single pass filter: Trading status, USDT quote, and ends with USDT
             symbols = [
                 i["symbol"] for i in resp["result"]["list"] 
-                if i["status"] == "Trading" and i["quoteCoin"] == "USDT"
+                if i["status"] == "Trading" 
+                and i["quoteCoin"] == "USDT"
+                and i["symbol"].endswith("USDT")
             ]
-            
-            # Filter out USDC perps just in case, though quoteCoin check covers it
-            symbols = [s for s in symbols if s.endswith("USDT")]
             
             self.logger.info(f"Found {len(symbols)} active USDT pairs")
             return symbols
@@ -492,9 +514,17 @@ class BybitClient:
 
 class DeviationMagnetStrategy:
     """Core strategy logic."""
+    
+    __slots__ = ('config', '_indices_buffer')
+    
+    # DCA price filter thresholds (pre-computed)
+    _DCA_LONG_THRESHOLD = 0.998   # Buy only if 0.2% below last entry
+    _DCA_SHORT_THRESHOLD = 1.002  # Sell only if 0.2% above last entry
 
     def __init__(self, config: Config):
         self.config = config
+        # Pre-allocate index array for circular buffer extraction (reused to avoid allocation)
+        self._indices_buffer = np.zeros(config.bb_length, dtype=np.int32)
 
     def calculate_bands_fast(self, buffer: np.ndarray, count: int, head: int, array_size: int) -> Optional[BandData]:
         """
@@ -505,7 +535,10 @@ class DeviationMagnetStrategy:
         
         Expects circular buffer indexing.
         """
+        # Cache config values as locals (faster attribute access)
         required_len = self.config.bb_length
+        mult = self.config.mult
+        dev_mult = self.config.dev_mult
         
         if count < required_len:
             return None
@@ -515,40 +548,37 @@ class DeviationMagnetStrategy:
             # Buffer not full, data is linear [0:count]
             subset = buffer[count - required_len : count]
         else:
-            # Circular buffer is full
+            # Circular buffer is full - use pre-allocated indices array
             # Extract last N items: [head - N + 1, ..., head]
-            indices = [(head - required_len + 1 + i) % array_size for i in range(required_len)]
-            subset = buffer[indices]
+            base = head - required_len + 1
+            for i in range(required_len):
+                self._indices_buffer[i] = (base + i) % array_size
+            subset = buffer[self._indices_buffer]
         
         # Check for NaNs in the window
         if np.isnan(subset[0, 0]):
             return None
         
-        # Columns: 0=open, 1=high, 2=low, 3=close, 4=time
+        # Extract columns once (faster than repeated indexing)
         opens = subset[:, 0]
         highs = subset[:, 1]
         lows = subset[:, 2]
         closes = subset[:, 3]
         
-        # Volatility Filter: Calculate average candle size (high-low as % of close)
-        candle_ranges = (highs - lows) / closes * 100  # % range
-        avg_candle_size_pct = np.mean(candle_ranges)
+        # Combined OHLC4 and volatility calculation (single pass where possible)
+        ohlc4 = (opens + highs + lows + closes) * 0.25  # Multiply by 0.25 faster than divide by 4
         
-        if avg_candle_size_pct < self.config.min_volatility_pct:
-            # Skip low-volatility pairs (stablecoins, dead pairs)
-            return None
-        
-        # Calculate OHLC4 on last N candles (INCLUDING current)
-        ohlc4 = (opens + highs + lows + closes) / 4.0
+        # Volatility: average (high-low)/close as percentage
+        avg_candle_size_pct = np.mean((highs - lows) / closes) * 100
         
         # Calculate Basis (Mean) and Stdev on last N candles (INCLUDING current)
         basis = np.mean(ohlc4)
         stdev = np.std(ohlc4, ddof=1)  # Sample stdev to match Pine Script's ta.stdev
         
-        # Calculate Bands
-        dev = self.config.mult * stdev
-        upper3 = basis + (dev * self.config.dev_mult)
-        lower3 = basis - (dev * self.config.dev_mult)
+        # Calculate Bands (using cached locals)
+        dev = mult * stdev
+        upper3 = basis + (dev * dev_mult)
+        lower3 = basis - (dev * dev_mult)
         
         # Current Candle (The last one in the window)
         current_candle = subset[-1]
@@ -557,8 +587,8 @@ class DeviationMagnetStrategy:
         latest_low = current_candle[2]
         latest_time_ts = current_candle[4]
         
-        # Convert timestamp back to datetime for logic
-        bar_time = datetime.fromtimestamp(latest_time_ts, tz=timezone.utc).replace(tzinfo=None)
+        # Convert timestamp to datetime (UTC)
+        bar_time = datetime.fromtimestamp(latest_time_ts, tz=timezone.utc)
         
         return BandData(
             close=latest_close,
@@ -573,47 +603,61 @@ class DeviationMagnetStrategy:
 
     def check_entry(self, symbol: str, data: BandData, state: TradingState) -> Tuple[Optional[str], bool]:
         """Returns (direction, is_dca)."""
-        bar_time_str = data.bar_time.isoformat() if hasattr(data.bar_time, 'isoformat') else str(data.bar_time)
-        bar_key = f"{symbol}_{bar_time_str}"
         
-        # 1. Check Existing Position (DCA)
-        if symbol in state.positions:
-            pos = state.positions[symbol]
+        # Cache frequently accessed attributes
+        data_low = data.low
+        data_high = data.high
+        lower3 = data.lower3
+        upper3 = data.upper3
+        
+        # 1. Check Existing Position (DCA) - Allow DCA even in low volatility to help exit losing positions
+        pos = state.positions.get(symbol)
+        if pos is not None:
+            # Cache bar_time string only when needed
+            bar_time_str = data.bar_time.isoformat()
             
             if pos.last_bar_time == bar_time_str:
-                # logging.debug(f"Skipping {symbol}: Already acted on bar {bar_time_str}")
                 return None, False  # Already acted this bar
             
             if pos.num_orders >= self.config.max_dca_orders:
                 return None, False
             
-            # Get last order price
+            # Get last order price and direction once
             last_order_price = pos.orders[-1]["price"]
+            direction = pos.direction
             
-            if pos.direction == "long" and data.low <= data.lower3:
+            if direction == "long" and data_low <= lower3:
                 # DCA Filter: Only buy if price is lower than last entry by at least 0.2%
-                # This prevents filling the bag on flat price action
-                if data.close <= last_order_price * 0.998:
+                if data.close <= last_order_price * self._DCA_LONG_THRESHOLD:
                     state.total_signals += 1
                     return "long", True
             
-            elif pos.direction == "short" and data.high >= data.upper3:
+            elif direction == "short" and data_high >= upper3:
                 # DCA Filter: Only sell if price is higher than last entry by at least 0.2%
-                if data.close >= last_order_price * 1.002:
+                if data.close >= last_order_price * self._DCA_SHORT_THRESHOLD:
                     state.total_signals += 1
                     return "short", True
             
             return None, False
         
         # 2. Check New Entry
+        # Volatility Filter: Only block NEW entries on dead/illiquid pairs (not DCA)
+        if data.avg_volatility_pct < self.config.min_volatility_pct:
+            return None, False
+        
+        # Cache bar_time string for new entry check
+        bar_time_str = data.bar_time.isoformat()
+        bar_key = f"{symbol}_{bar_time_str}"
+        
         if bar_key in state.signals_seen:
             return None, False
 
-        if data.low <= data.lower3:
+        if data_low <= lower3:
             state.signals_seen[bar_key] = "long"
             state.total_signals += 1
             return "long", False
-        elif data.high >= data.upper3:
+        
+        if data_high >= upper3:
             state.signals_seen[bar_key] = "short"
             state.total_signals += 1
             return "short", False
@@ -621,34 +665,33 @@ class DeviationMagnetStrategy:
         return None, False
 
     def check_exit(self, position: Position, data: BandData) -> Tuple[bool, str, float]:
-        """
-        Volatility-Based Exit Logic:
-        - TP set to average candle volatility minus fees
-        - Adapts automatically to each pair's typical movement range
-        """
+        """Volatility-Based Exit Logic."""
         # Safety check first
         if not position.orders:
             return False, "", 0.0
 
+        # Cache as locals for faster access
         avg_entry = position.avg_entry_price
-        current_price = data.close
+        total_fee_pct = self.config.total_fee_pct_for_tp
+        direction = position.direction
         
         # Calculate TP based on volatility
-        # TP = avg_volatility -fees (both entry taker + exit maker)
-        total_fee_pct = (self.config.fee_pct + self.config.maker_fee_pct) * 100
         target_pct = data.avg_volatility_pct - total_fee_pct
         
         # Ensure minimum profit (at least cover fees + tiny buffer)
-        target_pct = max(target_pct, total_fee_pct + 0.01)
+        min_target = total_fee_pct + 0.01
+        if target_pct < min_target:
+            target_pct = min_target
         
-        if position.direction == "long":
-            target_price = avg_entry * (1 + target_pct / 100)
-            # Check if High reached target (limit order simulation)
+        # Pre-compute multiplier
+        pct_mult = target_pct / 100
+        
+        if direction == "long":
+            target_price = avg_entry * (1 + pct_mult)
             if data.high >= target_price:
                 return True, "volatility_tp", target_price
         else:
-            target_price = avg_entry * (1 - target_pct / 100)
-            # Check if Low reached target (limit order simulation)
+            target_price = avg_entry * (1 - pct_mult)
             if data.low <= target_price:
                 return True, "volatility_tp", target_price
 
@@ -657,6 +700,8 @@ class DeviationMagnetStrategy:
 
 class TradeExecutor:
     """Handles order execution, PnL math, and state updates."""
+    
+    __slots__ = ('config', 'state', 'logger')
 
     def __init__(self, config: Config, state: TradingState):
         self.config = config
@@ -665,12 +710,13 @@ class TradeExecutor:
 
     def execute_entry(self, symbol: str, direction: str, price: float, bar_time: datetime, is_dca: bool):
         now = datetime.now(timezone.utc)
-        bar_str = self._fmt_time(bar_time)
+        now_iso = now.isoformat()  # Cache iso string
+        bar_str = bar_time.isoformat()  # Inline _fmt_time
 
         if is_dca and symbol in self.state.positions:
             pos = self.state.positions[symbol]
-            # Size = Current Total Exposure * Scale (Martingale Tripling with scale 2.0)
-            size = pos.total_size * self.config.dca_scale
+            # Size = Current Total Exposure * 2 (doubles total exposure each DCA)
+            size = pos.total_size * 2
             
             # Fallback
             if size <= 0:
@@ -679,9 +725,10 @@ class TradeExecutor:
             pos.orders.append({
                 "price": price,
                 "size": size,
-                "time": now.isoformat(),
+                "time": now_iso,
                 "bar_time": bar_str
             })
+            pos.invalidate_cache()  # Reset cached total_size and avg_entry_price
             
             self.logger.info(
                 f"📥 DCA #{pos.num_orders}: {symbol} {direction.upper()} @ ${price:.4f} "
@@ -691,7 +738,7 @@ class TradeExecutor:
             initial = {
                 "price": price,
                 "size": self.config.base_order_size,
-                "time": now.isoformat(),
+                "time": now_iso,
                 "bar_time": bar_str
             }
             self.state.positions[symbol] = Position(
@@ -708,34 +755,42 @@ class TradeExecutor:
         now = datetime.now(timezone.utc)
         avg = pos.avg_entry_price
         total_size = pos.total_size
-
-        if pos.direction == "long":
-            pnl_pct = (price - avg) / avg * 100
-        else:
-            pnl_pct = (avg - price) / avg * 100
-            
-        # Fees logic
-        entry_fee = total_size * self.config.fee_pct
-        notional_exit = total_size * (price / avg)
+        direction = pos.direction
         
-        # Use Maker fee if it's a Limit exit (profit_target), else Taker
-        exit_fee_pct = self.config.maker_fee_pct if is_maker else self.config.fee_pct
-        exit_fee = notional_exit * exit_fee_pct
+        # Pre-compute price ratio for efficiency
+        price_ratio = price / avg
+
+        if direction == "long":
+            pnl_pct = (price_ratio - 1.0) * 100
+        else:
+            pnl_pct = (1.0 - price_ratio) * 100
+            
+        # Fees + slippage logic (using pre-computed costs from Config)
+        entry_fee = total_size * self.config.entry_cost_pct
+        
+        notional_exit = total_size * price_ratio
+        
+        # Exit: maker/taker fee + slippage
+        exit_cost_pct = self.config.exit_maker_cost_pct if is_maker else self.config.exit_taker_cost_pct
+        exit_fee = notional_exit * exit_cost_pct
         
         total_fees = entry_fee + exit_fee
         
-        gross_pnl_usd = pnl_pct / 100 * total_size
+        gross_pnl_usd = pnl_pct * 0.01 * total_size  # * 0.01 faster than / 100
         pnl_usd = gross_pnl_usd - total_fees
         
         entry_time = pos.entry_time.replace(tzinfo=timezone.utc) if pos.entry_time.tzinfo is None else pos.entry_time
         
+        # Cache strftime format string
+        time_fmt = "%Y-%m-%d %H:%M:%S"
+        
         trade = Trade(
             symbol=symbol,
-            direction=pos.direction,
+            direction=direction,
             entry_price=avg,
             exit_price=price,
-            entry_time=entry_time.strftime("%Y-%m-%d %H:%M:%S"),
-            exit_time=now.strftime("%Y-%m-%d %H:%M:%S"),
+            entry_time=entry_time.strftime(time_fmt),
+            exit_time=now.strftime(time_fmt),
             pnl_pct=round(pnl_pct, 4),
             pnl_usd=round(pnl_usd, 4),
             hold_seconds=int((now - entry_time).total_seconds()),
@@ -754,19 +809,20 @@ class TradeExecutor:
 
         emoji = "✅" if pnl_usd > 0 else "❌"
         self.logger.info(
-            f"{emoji} EXIT: {symbol} {pos.direction.upper()} @ ${price:.4f} | "
+            f"{emoji} EXIT: {symbol} {direction.upper()} @ ${price:.4f} | "
             f"PnL: ${pnl_usd:.2f} (Net) | Price: {pnl_pct:.2f}% (Raw) | {reason}"
         )
         self.logger.info(f"   Stats: Runup: {pos.max_runup_pct:.2f}% | DD: {pos.max_drawdown_pct:.2f}% | Bars: {pos.bars_held}")
 
     def update_position_stats(self, symbol: str, current_price: float, data: BandData):
-        if symbol not in self.state.positions:
+        pos = self.state.positions.get(symbol)
+        if pos is None:
             return
-            
-        pos = self.state.positions[symbol]
-        avg = pos.avg_entry_price
         
-        if pos.direction == "long":
+        avg = pos.avg_entry_price
+        direction = pos.direction  # Cache
+        
+        if direction == "long":
             pnl_pct = (current_price - avg) / avg * 100
         else:
             pnl_pct = (avg - current_price) / avg * 100
@@ -774,23 +830,23 @@ class TradeExecutor:
         pos.max_runup_pct = max(pos.max_runup_pct, pnl_pct)
         pos.max_drawdown_pct = min(pos.max_drawdown_pct, pnl_pct)
         
-        bar_str = self._fmt_time(data.bar_time)
+        bar_str = data.bar_time.isoformat()  # Inline _fmt_time
         if pos.last_processed_bar != bar_str:
             pos.bars_held += 1
             pos.last_processed_bar = bar_str
-
-    def _fmt_time(self, t: datetime) -> str:
-        return t.isoformat() if hasattr(t, 'isoformat') else str(t)
 
 
 class DataManager:
     """Manages hybrid data: REST history + WebSocket updates.
     
     Optimized for:
-    1. Latency: Uses deque for O(1) appends instead of expensive DataFrame.concat
-    2. Concurrency: Uses per-symbol locks to prevent blocking across pairs
-    3. Memory: deque(maxlen=N) automatically handles cleanup
+    1. Latency: O(1) circular buffer updates
+    2. Concurrency: Per-symbol locks to prevent blocking across pairs
+    3. Memory: Fixed-size numpy arrays with automatic wraparound
     """
+    
+    __slots__ = ('client', 'symbols', 'array_size', 'data_buffers', 'counts',
+                 'head', 'locks', 'logger', '_row_buffer', '_tf_minutes', '_gap_threshold')
     
     def __init__(self, client: BybitClient, symbols: List[str]):
         self.client = client
@@ -811,6 +867,13 @@ class DataManager:
         # Fine-grained locking: One lock per symbol
         self.locks: Dict[str, Lock] = defaultdict(Lock)
         self.logger = logging.getLogger("deviation_magnet")
+        
+        # Pre-allocated row buffer for WS updates (reused to avoid allocation)
+        self._row_buffer = np.zeros(5, dtype=np.float64)
+        
+        # Cache timeframe as int for gap detection
+        self._tf_minutes = int(client.config.timeframe)
+        self._gap_threshold = self._tf_minutes * 5 * 60.0  # Pre-compute gap threshold in seconds
         
     def initialize(self):
         """Fetch initial history via REST in parallel."""
@@ -858,44 +921,46 @@ class DataManager:
 
     def on_kline_update(self, message: dict):
         """Handle WS kline update efficiently."""
-        if "data" not in message:
+        # Early exit if no data
+        if not (kline_data := message.get("data")):
             return
 
         # Extract symbol from topic (e.g. "kline.1.BTCUSDT")
         topic = message.get("topic", "")
-        parts = topic.split(".")
-        if len(parts) < 3:
+        if not topic.startswith("kline."):
             return
-        symbol = parts[2]
+        symbol = topic.rsplit(".", 1)[-1]
 
-        # Fail fast if symbol not tracked (though unlikely given subscription)
-        if symbol not in self.data_buffers:
+        # Fail fast if symbol not tracked
+        buffers = self.data_buffers
+        if symbol not in buffers:
             return
+        
+        # Cache dict references for this symbol (avoid repeated lookups)
+        buffer = buffers[symbol]
+        symbol_lock = self.locks[symbol]
+        row_buf = self._row_buffer
+        array_size = self.array_size
+        gap_threshold = self._gap_threshold
 
-        for kline in message["data"]:
-            # Convert timestamp once - FAST (No Pandas)
-            # kline["start"] is ms timestamp
-            ts_float = int(kline["start"]) / 1000.0
+        for kline in kline_data:
+            # Convert timestamp once (use multiplication, faster than division)
+            ts_float = int(kline["start"]) * 0.001
             
-            # Use specific lock for this symbol only -> High Concurrency
-            with self.locks[symbol]:
-                buffer = self.data_buffers[symbol]
+            with symbol_lock:
                 count = self.counts[symbol]
                 
-                # Prepare row: [open, high, low, close, time]
-                new_row = np.array([
-                    float(kline["open"]),
-                    float(kline["high"]),
-                    float(kline["low"]),
-                    float(kline["close"]),
-                    ts_float
-                ], dtype=np.float64)
+                # Fill row buffer
+                row_buf[0] = float(kline["open"])
+                row_buf[1] = float(kline["high"])
+                row_buf[2] = float(kline["low"])
+                row_buf[3] = float(kline["close"])
+                row_buf[4] = ts_float
 
                 head_idx = self.head[symbol]
                 
                 if count == 0:
-                    # First item
-                    buffer[0] = new_row
+                    buffer[0] = row_buf.copy()
                     self.counts[symbol] = 1
                     self.head[symbol] = 0
                     continue
@@ -903,27 +968,22 @@ class DataManager:
                 last_ts = buffer[head_idx, 4]
                 
                 if ts_float == last_ts:
-                    # Update in-place (same candle)
-                    buffer[head_idx] = new_row
+                    buffer[head_idx] = row_buf
                     
                 elif ts_float > last_ts:
-                    # Check for data gaps
-                    time_diff = (ts_float - last_ts) / 60.0
-                    tf_min = int(self.client.config.timeframe)
+                    time_diff = ts_float - last_ts
                     
-                    if time_diff > tf_min * 5: 
-                        self.logger.warning(f"⚠️ Data Gap detected for {symbol}: {time_diff:.1f}m. Resetting buffer.")
-                        # Reset
+                    if time_diff > gap_threshold:
+                        self.logger.warning(f"⚠️ Data Gap detected for {symbol}: {time_diff/60:.1f}m. Resetting buffer.")
                         buffer.fill(np.nan)
-                        buffer[0] = new_row
+                        buffer[0] = row_buf.copy()
                         self.counts[symbol] = 1
                         self.head[symbol] = 0
                     else:
-                        # Circular increment (O(1) operation!)
-                        new_head = (head_idx + 1) % self.array_size
-                        buffer[new_head] = new_row
+                        new_head = (head_idx + 1) % array_size
+                        buffer[new_head] = row_buf
                         self.head[symbol] = new_head
-                        self.counts[symbol] = min(count + 1, self.array_size)
+                        self.counts[symbol] = min(count + 1, array_size)
 
     def get_ordered_view(self, symbol: str) -> Optional[np.ndarray]:
         """Get chronologically ordered view of circular buffer."""
@@ -961,6 +1021,17 @@ class DataManager:
 
 class Bot:
     """Main controller."""
+    
+    __slots__ = ('config', 'logger', 'state', 'client', 'strategy', 'executor',
+                 'symbols', 'data_manager', 'event_queue', 'last_update_time',
+                 'watchdog_threshold', 'reconnect_counts', '_timeframe_int')
+    
+    # Class-level constant for valid trading statuses
+    _VALID_STATUSES = frozenset({"Trading", "PreLaunch"})
+    
+    # Pre-computed separator strings (class-level to avoid recreation)
+    _SEP_DOUBLE = '═' * 80
+    _SEP_SINGLE = '─' * 80
 
     def __init__(self):
         self.config = Config()
@@ -973,9 +1044,11 @@ class Bot:
         if not self.symbols:
             raise ValueError("No symbols found to trade!")
         self.data_manager = DataManager(self.client, self.symbols)
-        self.event_queue = queue.Queue()
+        self.event_queue: queue.Queue[str] = queue.Queue()
         self.last_update_time: Dict[str, float] = {}
-        self.watchdog_threshold = 60.0  # Seconds
+        self.watchdog_threshold = 60.0
+        self.reconnect_counts: Dict[str, int] = {}
+        self._timeframe_int = int(self.config.timeframe)  # Cache int conversion
 
     def run(self):
         """Start the bot loop."""
@@ -1004,8 +1077,10 @@ class Bot:
             self.data_manager.on_kline_update(message)
             # Queue event for processing in main thread
             topic = message.get("topic", "")
-            if "kline" in topic:
-                symbol = topic.split(".")[-1]
+            # Fast path: check for kline prefix
+            if topic.startswith("kline."):
+                # Topic format: "kline.1.BTCUSDT" - symbol is after second dot
+                symbol = topic.rsplit(".", 1)[-1]
                 self.last_update_time[symbol] = time.time()
                 self.event_queue.put(symbol)
         except Exception as e:
@@ -1015,11 +1090,11 @@ class Bot:
         """Connect and subscribe to WebSockets."""
         self.logger.info("🔌 Connecting to WebSockets...")
         
-        # Subscribe to all symbols
-        # Note: Pybit handles the connection loop
+        # Subscribe to all symbols using cached timeframe int
+        tf_int = self._timeframe_int
         for symbol in self.symbols:
             self.client.ws.kline_stream(
-                interval=int(self.config.timeframe),
+                interval=tf_int,
                 symbol=symbol,
                 callback=self._handle_ws_message
             )
@@ -1070,7 +1145,8 @@ class Bot:
 
     def _check_watchdog(self):
         now = time.time()
-        for symbol in self.symbols:
+        # Use list() copy to avoid modifying list while iterating
+        for symbol in list(self.symbols):
             last = self.last_update_time.get(symbol, now)
             diff = now - last
             if diff > self.watchdog_threshold:
@@ -1079,7 +1155,7 @@ class Bot:
                 # 1. Check if Delisted / Not Trading
                 status = self.client.check_symbol_status(symbol)
                 
-                if status not in ["Trading", "PreLaunch"]:
+                if status not in self._VALID_STATUSES:
                     self.logger.warning(f"🚨 CRITICAL: {symbol} status is '{status}'. Potential DELISTING!")
                     
                     # Emergency Exit if position exists
@@ -1097,10 +1173,16 @@ class Bot:
                     continue
 
                 # 2. Attempt to re-subscribe
-                self.logger.info(f"🔄 Symbol {symbol} is {status}. Re-subscribing to WS...")
+                self.reconnect_counts[symbol] = self.reconnect_counts.get(symbol, 0) + 1
+                reconnect_count = self.reconnect_counts[symbol]
+                
+                if reconnect_count >= 5:
+                    self.logger.warning(f"⚠️ {symbol} has reconnected {reconnect_count} times - possible connectivity issue")
+                
+                self.logger.info(f"🔄 Symbol {symbol} is {status}. Re-subscribing to WS... (attempt #{reconnect_count})")
                 try:
                     self.client.ws.kline_stream(
-                        interval=int(self.config.timeframe),
+                        interval=self._timeframe_int,
                         symbol=symbol,
                         callback=self._handle_ws_message
                     )
@@ -1128,17 +1210,18 @@ class Bot:
         
         # Use state lock for all position reads/writes to ensure consistency with async save
         with self.state._lock:
-            # Check Exit
-            if symbol in self.state.positions:
-                pos = self.state.positions[symbol]
+            # Check Exit - use .get() to avoid double lookup
+            pos = self.state.positions.get(symbol)
+            if pos is not None:
                 self.executor.update_position_stats(symbol, current_price, data)
                 
                 should_exit, reason, exit_price = self.strategy.check_exit(pos, data)
                 if should_exit:
-                    is_maker = (reason == "profit_target")
+                    # volatility_tp uses limit orders = maker fees
+                    is_maker = reason in ("profit_target", "volatility_tp")
                     self.executor.execute_exit(symbol, pos, exit_price, reason, is_maker)
                     # Prevent immediate re-entry
-                    bar_key = f"{symbol}_{self.executor._fmt_time(data.bar_time)}"
+                    bar_key = f"{symbol}_{data.bar_time.isoformat()}"
                     self.state.signals_seen[bar_key] = "exit"
                     return
 
@@ -1147,23 +1230,13 @@ class Bot:
             if direction:
                 self.executor.execute_entry(symbol, direction, current_price, data.bar_time, is_dca)
 
-    # ... (rest of methods like _fetch_all_data removed as they are replaced by DataManager)
-    # Keeping helper methods
-    
-
-
-
-
-
-
     def _daily_report(self, date):
+        """Log daily trade summary."""
         date_str = str(date)
         trades = [t for t in self.state.trades if t.exit_time.startswith(date_str)]
         if trades:
             total = sum(t.pnl_usd for t in trades)
             self.logger.info(f"📊 {date_str}: {len(trades)} trades | PnL: ${total:.2f}")
-
-
 
     def _print_header(self):
         c = self.config
@@ -1192,16 +1265,20 @@ class Bot:
         now = datetime.now(timezone.utc)
         session_duration = (now - self.state.start_time).total_seconds() / 3600  # hours
         
-        print(f"\n{'═' * 80}")
+        # Use class-level separator strings
+        sep_double = self._SEP_DOUBLE
+        sep_single = self._SEP_SINGLE
+        
+        print(f"\n{sep_double}")
         print(f"  📊 SESSION STATS")
-        print(f"{'─' * 80}")
+        print(sep_single)
         print(f"  Runtime: {session_duration:.1f}h | Signals: {self.state.total_signals} | Errors: {self.state.api_errors}")
         
         # Open Positions Details
         if self.state.positions:
-            print(f"\n{'─' * 80}")
+            print(f"\n{sep_single}")
             print(f"  📂 OPEN POSITIONS ({len(self.state.positions)})")
-            print(f"{'─' * 80}")
+            print(sep_single)
             
             total_exposure = 0
             total_unrealized_pnl = 0
@@ -1213,23 +1290,25 @@ class Bot:
                 if df is not None and len(df) > 0:
                     current = df.iloc[-1]["close"]
                     avg = pos.avg_entry_price
-                    pnl_pct = (current - avg)/avg*100 if pos.direction == "long" else (avg - current)/avg*100
+                    price_ratio = current / avg
+                    pnl_pct = (price_ratio - 1.0) * 100 if pos.direction == "long" else (1.0 - price_ratio) * 100
                     
-                    # Calculate unrealized USD (after fees)
-                    entry_fee = pos.total_size * self.config.fee_pct
-                    notional_exit = pos.total_size * (current / avg)
-                    exit_fee = notional_exit * self.config.fee_pct
+                    # Calculate unrealized USD (after fees + slippage, using pre-computed costs)
+                    total_size = pos.total_size
+                    entry_fee = total_size * self.config.entry_cost_pct
+                    notional_exit = total_size * price_ratio
+                    exit_fee = notional_exit * self.config.exit_taker_cost_pct
                     total_fees = entry_fee + exit_fee
-                    gross_pnl_usd = pnl_pct / 100 * pos.total_size
+                    gross_pnl_usd = pnl_pct * 0.01 * total_size
                     unrealized_usd = gross_pnl_usd - total_fees
                     
-                    total_exposure += pos.total_size
+                    total_exposure += total_size
                     total_unrealized_pnl += unrealized_usd
                     
                     positions_sorted.append((sym, pos, pnl_pct, unrealized_usd, current))
             
             # Sort by PnL% (worst first so you see problems)
-            positions_sorted.sort(key=lambda x: x[2])
+            positions_sorted.sort(key=itemgetter(2))
             
             for sym, pos, pnl_pct, unrealized_usd, current in positions_sorted:
                 dca_info = f"DCA #{pos.num_orders}" if pos.num_orders > 1 else "BASE"
@@ -1241,37 +1320,49 @@ class Bot:
                       f"{pnl_pct:>+6.2f}% (${unrealized_usd:>+6.2f}) | "
                       f"Hold: {pos.bars_held}m | DD: {pos.max_drawdown_pct:>+5.2f}%")
             
-            print(f"{'─' * 80}")
+            print(sep_single)
             print(f"  💰 Total Exposure: ${total_exposure:,.0f}")
             print(f"  💵 Unrealized PnL: ${total_unrealized_pnl:>+,.2f}")
         
         else:
-            print(f"\n{'─' * 80}")
+            print(f"\n{sep_single}")
             print(f"  📂 OPEN POSITIONS: None")
         
         # Realized PnL (AT BOTTOM - Most Important)
-        print(f"\n{'═' * 80}")
+        print(f"\n{sep_double}")
         print(f"  📈 REALIZED PNL")
-        print(f"{'═' * 80}")
+        print(sep_double)
         
         if self.state.trades:
-            total_realized = sum(t.pnl_usd for t in self.state.trades)
-            wins = [t for t in self.state.trades if t.pnl_usd > 0]
-            losses = [t for t in self.state.trades if t.pnl_usd <= 0]
-            win_rate = len(wins) / len(self.state.trades) * 100 if self.state.trades else 0
+            # Single-pass computation of all trade statistics
+            total_realized = 0.0
+            win_count = 0
+            total_hold_seconds = 0
+            best_trade = self.state.trades[0]
+            worst_trade = self.state.trades[0]
             
-            avg_hold_time = sum(t.hold_seconds for t in self.state.trades) / len(self.state.trades) / 60 if self.state.trades else 0
+            for t in self.state.trades:
+                total_realized += t.pnl_usd
+                total_hold_seconds += t.hold_seconds
+                if t.pnl_usd > 0:
+                    win_count += 1
+                if t.pnl_usd > best_trade.pnl_usd:
+                    best_trade = t
+                if t.pnl_usd < worst_trade.pnl_usd:
+                    worst_trade = t
             
-            best_trade = max(self.state.trades, key=lambda t: t.pnl_usd)
-            worst_trade = min(self.state.trades, key=lambda t: t.pnl_usd)
+            trade_count = len(self.state.trades)
+            loss_count = trade_count - win_count
+            win_rate = win_count / trade_count * 100
+            avg_hold_time = total_hold_seconds / trade_count / 60
             
-            print(f"  Total Trades: {len(self.state.trades)} | Wins: {len(wins)} | Losses: {len(losses)} | Win Rate: {win_rate:.1f}%")
+            print(f"  Total Trades: {trade_count} | Wins: {win_count} | Losses: {loss_count} | Win Rate: {win_rate:.1f}%")
             print(f"  Avg Hold: {avg_hold_time:.1f}m | Best: ${best_trade.pnl_usd:+.2f} ({best_trade.symbol}) | Worst: ${worst_trade.pnl_usd:+.2f} ({worst_trade.symbol})")
             print(f"\n  💰 TOTAL REALIZED PNL: ${total_realized:>+,.2f}")
         else:
             print(f"  No trades yet")
         
-        print(f"{'═' * 80}\n", flush=True)
+        print(f"{sep_double}\n", flush=True)
 
 
 if __name__ == "__main__":
