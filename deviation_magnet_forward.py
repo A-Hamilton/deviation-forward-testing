@@ -74,7 +74,7 @@ class Config:
     min_volatility_pct: float = 0.2  # Minimum avg candle size (high-low as % of close)
     
     # DCA settings
-    dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "2.0")))
+    dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "5.0")))
     max_dca_orders: int = field(default_factory=lambda: int(os.environ.get("MAX_DCA_ORDERS", "2")))
 
     # Memory management
@@ -188,8 +188,11 @@ class Position:
         if self._cached_avg_price is None:
             if not self.orders:
                 return 0.0
+            total = self.total_size
+            if total <= 0:
+                return 0.0
             total_cost = sum(o["price"] * o["size"] for o in self.orders)
-            self._cached_avg_price = total_cost / self.total_size
+            self._cached_avg_price = total_cost / total
         return self._cached_avg_price
     
     def invalidate_cache(self) -> None:
@@ -320,6 +323,17 @@ class TradingState:
             with open(self.config.state_file, "r") as f:
                 state_data = json_loads(f.read())
 
+            # Restore session metadata
+            if "start_time" in state_data:
+                saved_start = datetime.fromisoformat(state_data["start_time"])
+                if saved_start.tzinfo is None:
+                    saved_start = saved_start.replace(tzinfo=timezone.utc)
+                self.start_time = saved_start
+            
+            # Restore counters
+            self.total_signals = state_data.get("total_signals", 0)
+            self.api_errors = state_data.get("api_errors", 0)
+            
             # LOAD POSITIONS
             for sym, data in state_data.get("positions", {}).items():
                 entry_time = datetime.fromisoformat(data["entry_time"])
@@ -354,9 +368,16 @@ class TradingState:
 
             # Cap memory usage
             recent = trades_data[-self.config.trades_memory_cap:]
+            skipped = 0
             for t in recent:
-                self.trades.append(Trade(**t))
-
+                try:
+                    self.trades.append(Trade(**t))
+                except (TypeError, KeyError) as e:
+                    skipped += 1
+                    self.logger.warning(f"Skipped corrupted trade record: {e}")
+            
+            if skipped:
+                self.logger.warning(f"Skipped {skipped} corrupted trade records")
             self.logger.info(f"Loaded {len(self.trades)} recent trades (total {len(trades_data)})")
         except Exception as e:
             self.logger.error(f"Failed to load trades: {e}")
@@ -515,7 +536,7 @@ class BybitClient:
 class DeviationMagnetStrategy:
     """Core strategy logic."""
     
-    __slots__ = ('config', '_indices_buffer')
+    __slots__ = ('config',)
     
     # DCA price filter thresholds (pre-computed)
     _DCA_LONG_THRESHOLD = 0.998   # Buy only if 0.2% below last entry
@@ -523,8 +544,6 @@ class DeviationMagnetStrategy:
 
     def __init__(self, config: Config):
         self.config = config
-        # Pre-allocate index array for circular buffer extraction (reused to avoid allocation)
-        self._indices_buffer = np.zeros(config.bb_length, dtype=np.int32)
 
     def calculate_bands_fast(self, buffer: np.ndarray, count: int, head: int, array_size: int) -> Optional[BandData]:
         """
@@ -548,12 +567,11 @@ class DeviationMagnetStrategy:
             # Buffer not full, data is linear [0:count]
             subset = buffer[count - required_len : count]
         else:
-            # Circular buffer is full - use pre-allocated indices array
+            # Circular buffer is full - compute indices locally (thread-safe)
             # Extract last N items: [head - N + 1, ..., head]
             base = head - required_len + 1
-            for i in range(required_len):
-                self._indices_buffer[i] = (base + i) % array_size
-            subset = buffer[self._indices_buffer]
+            indices = (np.arange(required_len) + base) % array_size
+            subset = buffer[indices]
         
         # Check for NaNs in the window
         if np.isnan(subset[0, 0]):
@@ -619,7 +637,8 @@ class DeviationMagnetStrategy:
             if pos.last_bar_time == bar_time_str:
                 return None, False  # Already acted this bar
             
-            if pos.num_orders >= self.config.max_dca_orders:
+            # num_orders includes base order, so check if we've already added max DCAs
+            if pos.num_orders > self.config.max_dca_orders:
                 return None, False
             
             # Get last order price and direction once
@@ -715,8 +734,8 @@ class TradeExecutor:
 
         if is_dca and symbol in self.state.positions:
             pos = self.state.positions[symbol]
-            # Size = Current Total Exposure * 5 (aggressive averaging down)
-            size = pos.total_size * 5
+            # Size = Current Total Exposure * DCA Scale (aggressive averaging down)
+            size = pos.total_size * self.config.dca_scale
             
             # Fallback
             if size <= 0:
@@ -820,6 +839,9 @@ class TradeExecutor:
             return
         
         avg = pos.avg_entry_price
+        if avg <= 0:
+            return  # Safety: can't compute PnL without valid avg price
+        
         direction = pos.direction  # Cache
         
         if direction == "long":
@@ -846,7 +868,7 @@ class DataManager:
     """
     
     __slots__ = ('client', 'symbols', 'array_size', 'data_buffers', 'counts',
-                 'head', 'locks', 'logger', '_row_buffer', '_tf_minutes', '_gap_threshold')
+                 'head', 'locks', 'logger', '_tf_minutes', '_gap_threshold')
     
     def __init__(self, client: BybitClient, symbols: List[str]):
         self.client = client
@@ -867,9 +889,6 @@ class DataManager:
         # Fine-grained locking: One lock per symbol
         self.locks: Dict[str, Lock] = defaultdict(Lock)
         self.logger = logging.getLogger("deviation_magnet")
-        
-        # Pre-allocated row buffer for WS updates (reused to avoid allocation)
-        self._row_buffer = np.zeros(5, dtype=np.float64)
         
         # Cache timeframe as int for gap detection
         self._tf_minutes = int(client.config.timeframe)
@@ -939,7 +958,6 @@ class DataManager:
         # Cache dict references for this symbol (avoid repeated lookups)
         buffer = buffers[symbol]
         symbol_lock = self.locks[symbol]
-        row_buf = self._row_buffer
         array_size = self.array_size
         gap_threshold = self._gap_threshold
 
@@ -950,17 +968,19 @@ class DataManager:
             with symbol_lock:
                 count = self.counts[symbol]
                 
-                # Fill row buffer
-                row_buf[0] = float(kline["open"])
-                row_buf[1] = float(kline["high"])
-                row_buf[2] = float(kline["low"])
-                row_buf[3] = float(kline["close"])
-                row_buf[4] = ts_float
+                # Create row data (inside lock for thread safety)
+                row = np.array([
+                    float(kline["open"]),
+                    float(kline["high"]),
+                    float(kline["low"]),
+                    float(kline["close"]),
+                    ts_float
+                ], dtype=np.float64)
 
                 head_idx = self.head[symbol]
                 
                 if count == 0:
-                    buffer[0] = row_buf.copy()
+                    buffer[0] = row
                     self.counts[symbol] = 1
                     self.head[symbol] = 0
                     continue
@@ -968,7 +988,7 @@ class DataManager:
                 last_ts = buffer[head_idx, 4]
                 
                 if ts_float == last_ts:
-                    buffer[head_idx] = row_buf
+                    buffer[head_idx] = row
                     
                 elif ts_float > last_ts:
                     time_diff = ts_float - last_ts
@@ -976,12 +996,12 @@ class DataManager:
                     if time_diff > gap_threshold:
                         self.logger.warning(f"⚠️ Data Gap detected for {symbol}: {time_diff/60:.1f}m. Resetting buffer.")
                         buffer.fill(np.nan)
-                        buffer[0] = row_buf.copy()
+                        buffer[0] = row
                         self.counts[symbol] = 1
                         self.head[symbol] = 0
                     else:
                         new_head = (head_idx + 1) % array_size
-                        buffer[new_head] = row_buf
+                        buffer[new_head] = row
                         self.head[symbol] = new_head
                         self.counts[symbol] = min(count + 1, array_size)
 
@@ -1053,6 +1073,7 @@ class Bot:
     def run(self):
         """Start the bot loop."""
         self.state.load()
+        self.state.load_trades()
         self._print_header()
 
         self.logger.info("🔄 Starting...")
@@ -1228,7 +1249,10 @@ class Bot:
             # Check Entry
             direction, is_dca = self.strategy.check_entry(symbol, data, self.state)
             if direction:
-                self.executor.execute_entry(symbol, direction, current_price, data.bar_time, is_dca)
+                # Use band price for entry, not current close (which may have moved)
+                # Long entries touch lower band, short entries touch upper band
+                entry_price = data.lower3 if direction == "long" else data.upper3
+                self.executor.execute_entry(symbol, direction, entry_price, data.bar_time, is_dca)
 
     def _daily_report(self, date):
         """Log daily trade summary."""
