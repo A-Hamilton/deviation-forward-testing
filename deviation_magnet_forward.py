@@ -700,8 +700,9 @@ class DeviationMagnetStrategy:
         target_pct = data.avg_volatility_pct - total_fee_pct
         
         # Ensure minimum profit (fees + meaningful buffer for actual profit)
-        # total_fee_pct is ~0.17%, we want at least 0.05% NET profit after fees
-        min_target = total_fee_pct + 0.05
+        # total_fee_pct is ~0.17%, we want at least 0.10% NET profit after fees
+        # This ensures $0.01+ profit on $10 positions even with rounding
+        min_target = total_fee_pct + 0.10
         if target_pct < min_target:
             target_pct = min_target
         
