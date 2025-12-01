@@ -58,6 +58,9 @@ class Config:
     profit_target_pct: float = field(default_factory=lambda: float(os.environ.get("PROFIT_TARGET", "0.1")))
 
     
+    # Volatility filter
+    min_volatility_pct: float = 0.2  # Minimum avg candle size (high-low as % of close)
+    
     # DCA settings
     dca_scale: float = field(default_factory=lambda: float(os.environ.get("DCA_SCALE", "2.0")))
     max_dca_orders: int = field(default_factory=lambda: int(os.environ.get("MAX_DCA_ORDERS", "10")))
@@ -525,6 +528,14 @@ class DeviationMagnetStrategy:
         highs = subset[:, 1]
         lows = subset[:, 2]
         closes = subset[:, 3]
+        
+        # Volatility Filter: Calculate average candle size (high-low as % of close)
+        candle_ranges = (highs - lows) / closes * 100  # % range
+        avg_candle_size_pct = np.mean(candle_ranges)
+        
+        if avg_candle_size_pct < self.config.min_volatility_pct:
+            # Skip low-volatility pairs (stablecoins, dead pairs)
+            return None
         
         # Calculate OHLC4 on last N candles (INCLUDING current)
         ohlc4 = (opens + highs + lows + closes) / 4.0
