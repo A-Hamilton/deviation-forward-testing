@@ -620,8 +620,9 @@ class DeviationMagnetStrategy:
 
     def check_exit(self, position: Position, data: BandData) -> Tuple[bool, str, float]:
         """
-        Checks for exit conditions.
-        Returns: (should_exit, reason, exit_price)
+        Mean Reversion Exit Logic:
+        - Shorts: Exit when price crosses BELOW upper3 AND position is profitable
+        - Longs: Exit when price crosses ABOVE lower3 AND position is profitable
         """
         # Safety check first
         if not position.orders:
@@ -630,35 +631,27 @@ class DeviationMagnetStrategy:
         avg_entry = position.avg_entry_price
         current_price = data.close
         
-        # 1. Calculate Target Price (Limit Order Logic)
-        # Required % = Target + Round Trip Fees (Entry Taker + Exit Maker)
-        # Note: We use Maker fee for exit because we are simulating a Limit Order
-        required_pct = self.config.profit_target_pct + (self.config.fee_pct * 100) + (self.config.maker_fee_pct * 100)
-        required_pct += 0.01 # Tiny buffer
-
-        target_price = 0.0
-        if position.direction == "long":
-            target_price = avg_entry * (1 + required_pct / 100)
-            # Check if High reached target
-            if data.high >= target_price:
-                return True, "profit_target", target_price
-        else:
-            target_price = avg_entry * (1 - required_pct / 100)
-            # Check if Low reached target
-            if data.low <= target_price:
-                return True, "profit_target", target_price
-
-        # 2. Base Entry Price Check (Safety / Mean Reversion check)
-        # We must cross the INITIAL entry price to ensure "mean reversion" completed
-        # This is a "Market Order" style check (Close price)
-        base_entry_price = position.orders[0]["price"]
+        # Calculate if position is profitable (after fees)
+        entry_fee = position.total_size * self.config.fee_pct
+        exit_fee = position.total_size * (current_price / avg_entry) * self.config.maker_fee_pct
+        total_fees = entry_fee + exit_fee
         
         if position.direction == "long":
-            if current_price <= base_entry_price:
-                return False, "", 0.0
+            # Calculate gross PnL
+            gross_pnl = ((current_price - avg_entry) / avg_entry) * position.total_size
+            net_pnl = gross_pnl - total_fees
+            
+            # Exit if: price crossed ABOVE lower3 AND profitable
+            if data.close >= data.lower3 and net_pnl > 0:
+                return True, "mean_reversion", current_price
         else:
-            if current_price >= base_entry_price:
-                return False, "", 0.0
+            # Short: gross PnL
+            gross_pnl = ((avg_entry - current_price) / avg_entry) * position.total_size
+            net_pnl = gross_pnl - total_fees
+            
+            # Exit if: price crossed BELOW upper3 AND profitable
+            if data.close <= data.upper3 and net_pnl > 0:
+                return True, "mean_reversion", current_price
 
         return False, "", 0.0
 
