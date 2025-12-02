@@ -38,19 +38,19 @@ from pybit.unified_trading import HTTP
 class OptConfig:
     """Optimizer configuration."""
     
-    # Parameter grid - REDUCED DEFAULT RANGE for speed
+    # Parameter grid
     bb_length_start: int = 5
-    bb_length_end: int = 100
-    bb_length_step: int = 5  # 20 values: 5, 10, 15, ... 100
+    bb_length_end: int = 200
+    bb_length_step: int = 5  # 40 values: 5, 10, 15, ... 200
     
-    mult_start: float = 2.0
-    mult_end: float = 8.0
-    mult_step: float = 0.5  # 13 values: 2.0, 2.5, ... 8.0
+    mult_start: float = 1.0
+    mult_end: float = 50.0
+    mult_step: float = 0.5  # 99 values: 1.0, 1.5, ... 50.0
     
     # Fixed strategy params (same as forward tester)
     dev_mult: float = 1.5
     base_order_size: float = 10.0
-    max_positions_per_direction: int = 100  # Max positions in same direction
+    max_positions_total: int = 100  # Max positions TOTAL across all symbols
     
     # Fee structure (same as forward tester)
     fee_pct: float = 0.00055  # 0.055% taker
@@ -583,7 +583,7 @@ class ParameterOptimizer:
             "entry_cost": self.config.fee_pct + self.config.slippage_pct,
             "exit_maker_cost": self.config.maker_fee_pct + self.config.slippage_pct,
             "exit_taker_cost": self.config.fee_pct + self.config.slippage_pct,
-            "max_positions": self.config.max_positions_per_direction,
+            "max_positions": self.config.max_positions_total,
         }
         
         # 4. Run backtests in parallel
@@ -784,7 +784,7 @@ def parse_args():
     
     # Mult range
     parser.add_argument("--mult_start", type=float, default=1.0, help="Mult start (default: 1.0)")
-    parser.add_argument("--mult_end", type=float, default=10.0, help="Mult end (default: 10.0)")
+    parser.add_argument("--mult_end", type=float, default=50.0, help="Mult end (default: 50.0)")
     parser.add_argument("--mult_step", type=float, default=0.5, help="Mult step (default: 0.5)")
     
     # Data settings
@@ -815,7 +815,7 @@ def main():
         tp_lookahead=args.lookahead,
         min_trades=args.min_trades,
         target_win_rate=args.win_rate,
-        max_positions_per_direction=args.max_positions,
+        max_positions_total=args.max_positions,
         top_n=args.top,
         output_file=Path(args.output),
     )

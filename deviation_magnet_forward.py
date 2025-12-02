@@ -67,7 +67,7 @@ class Config:
 
     # Position management - SIMPLIFIED
     base_order_size: float = field(default_factory=lambda: float(os.environ.get("BASE_ORDER_SIZE", "10.0")))
-    max_positions_per_direction: int = 100  # Max longs OR shorts per symbol
+    max_positions_total: int = 100  # Max positions TOTAL across all symbols
     
     # Fee structure
     fee_pct: float = 0.00055  # 0.055% taker
@@ -219,9 +219,10 @@ class PositionManager:
     Manages multiple positions per symbol.
     
     Logic:
-    - Can have multiple positions in SAME direction (up to max_positions_per_direction)
+    - Can have multiple positions in SAME direction
     - Opposite signal closes ALL positions for that symbol
     - Each position tracked individually for TP
+    - Global limit of max_positions_total across ALL symbols
     """
     
     def __init__(self, config: Config):
@@ -229,6 +230,11 @@ class PositionManager:
         # positions[symbol] = list of SinglePosition objects
         self.positions: Dict[str, List[SinglePosition]] = defaultdict(list)
         self._lock = RLock()
+    
+    def get_total_position_count(self) -> int:
+        """Get total number of open positions across ALL symbols."""
+        with self._lock:
+            return sum(len(positions) for positions in self.positions.values())
     
     def get_direction(self, symbol: str) -> Optional[str]:
         """Get current direction for symbol (None if no positions)."""
@@ -244,15 +250,20 @@ class PositionManager:
             return len(self.positions.get(symbol, []))
     
     def can_add_position(self, symbol: str, direction: str) -> bool:
-        """Check if we can add a position in this direction."""
+        """Check if we can add a position (global limit check)."""
         with self._lock:
+            # Check global limit first
+            total_positions = sum(len(p) for p in self.positions.values())
+            if total_positions >= self.config.max_positions_total:
+                return False
+            
             positions = self.positions.get(symbol, [])
             if not positions:
                 return True
-            # Can only add if same direction and under limit
+            # Can only add if same direction
             if positions[0].direction != direction:
                 return False  # Would need to close first
-            return len(positions) < self.config.max_positions_per_direction
+            return True
     
     def add_position(self, pos: SinglePosition) -> None:
         """Add a new position."""
@@ -1171,10 +1182,10 @@ class Bot:
         print(f"  Symbols:        {len(self.symbols)}")
         print(f"  BB Settings:    Length={c.bb_length}, Mult={c.mult} (Sigma={c.mult * c.dev_mult:.2f})")
         print(f"  Position Size:  ${c.base_order_size}")
-        print(f"  Max Positions:  {c.max_positions_per_direction} per direction per symbol")
+        print(f"  Max Positions:  {c.max_positions_total} TOTAL across all symbols")
         print(f"{'─' * 70}")
         print(f"  Logic:")
-        print(f"    - Same direction signal = Add position (up to max)")
+        print(f"    - Same direction signal = Add position (if under {c.max_positions_total} total)")
         print(f"    - Opposite signal = Close ALL + Open new (stop loss)")
         print(f"    - Volatility TP still active per position")
         print(f"{'═' * 70}\n", flush=True)
