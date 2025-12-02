@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from operator import itemgetter
 from pathlib import Path
-from threading import Lock, Thread
+from threading import RLock, Lock, Thread
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -43,6 +43,9 @@ except ImportError:
     json_loads = _json.loads
     def json_dumps(obj, indent=None): return _json.dumps(obj, indent=indent)
 
+# Version tracking
+__version__ = "1.1.0"
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -52,8 +55,8 @@ class Config:
     """Trading configuration parameters."""
 
     # Indicator settings
-    bb_length: int = 200
-    mult: float = 5.0  # Total: 5.0 * 1.5 = 7.5 sigma
+    bb_length: int = 20
+    mult: float = 5.5  # Total: 5.5 * 1.5 = 8.25 sigma
     dev_mult: float = 1.5
 
     # Timing
@@ -88,6 +91,9 @@ class Config:
     # API retry settings
     api_retries: int = 3
     api_retry_delay: float = 1.0
+    
+    # Queue monitoring
+    max_queue_size: int = 10000  # Warn if queue exceeds this
 
     # Data paths
     data_dir: Path = field(default_factory=lambda: Path("forward_test_data"))
@@ -267,7 +273,7 @@ class TradingState:
         self.start_time: datetime = datetime.now(timezone.utc)
         self.total_signals: int = 0
         self.api_errors: int = 0
-        self._lock = Lock()
+        self._lock = RLock()  # Reentrant lock for nested acquisition
         self.logger = logging.getLogger("deviation_magnet")
         self.save_lock = Lock()
 
@@ -1042,6 +1048,15 @@ class DataManager:
             df["open_time"] = pd.to_datetime(df["ts"], unit="s")
             return df
 
+    def get_latest_price(self, symbol: str) -> Optional[float]:
+        """Get just the latest close price (fast path for status display)."""
+        buffer = self.data_buffers.get(symbol)
+        count = self.counts.get(symbol, 0)
+        if buffer is not None and count > 0:
+            head = self.head.get(symbol, 0)
+            return float(buffer[head, 3])  # Close price
+        return None
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # BOT CONTROLLER
@@ -1052,7 +1067,8 @@ class Bot:
     
     __slots__ = ('config', 'logger', 'state', 'client', 'strategy', 'executor',
                  'symbols', 'data_manager', 'event_queue', 'last_update_time',
-                 'watchdog_threshold', 'reconnect_counts', '_timeframe_int')
+                 'watchdog_threshold', 'reconnect_counts', '_timeframe_int',
+                 '_queue_overflow_warned', '_ws_connected')
     
     # Class-level constant for valid trading statuses
     _VALID_STATUSES = frozenset({"Trading", "PreLaunch"})
@@ -1077,6 +1093,8 @@ class Bot:
         self.watchdog_threshold = 60.0
         self.reconnect_counts: Dict[str, int] = {}
         self._timeframe_int = int(self.config.timeframe)  # Cache int conversion
+        self._queue_overflow_warned = False
+        self._ws_connected = True
 
     def run(self):
         """Start the bot loop."""
@@ -1142,7 +1160,10 @@ class Bot:
                     for _ in range(50):
                         # Block for up to 10ms if empty, but wake immediately on event
                         symbol = self.event_queue.get(timeout=0.01)
-                        self._process_symbol_event(symbol)
+                        try:
+                            self._process_symbol_event(symbol)
+                        except Exception as e:
+                            self.logger.error(f"Error processing {symbol}: {e}")
                         self.event_queue.task_done()
                 except queue.Empty:
                     pass  # Queue empty, continue to status checks
@@ -1153,6 +1174,7 @@ class Bot:
                     self._print_status()
                     self.state.cleanup_signals()
                     self._check_watchdog()
+                    self._check_queue_health()
                     last_status_time = now
                 
                 # 3. Daily report
@@ -1171,6 +1193,17 @@ class Bot:
             self.logger.error(traceback.format_exc())
             self.state.save()
             raise
+
+    def _check_queue_health(self):
+        """Monitor event queue for backpressure issues."""
+        queue_size = self.event_queue.qsize()
+        if queue_size > self.config.max_queue_size:
+            if not self._queue_overflow_warned:
+                self.logger.warning(f"⚠️ Event queue backpressure: {queue_size} items queued")
+                self._queue_overflow_warned = True
+        elif self._queue_overflow_warned and queue_size < self.config.max_queue_size // 2:
+            self.logger.info(f"✅ Queue backpressure resolved: {queue_size} items")
+            self._queue_overflow_warned = False
 
     def _check_watchdog(self):
         now = time.time()
@@ -1273,7 +1306,7 @@ class Bot:
     def _print_header(self):
         c = self.config
         print(f"\n{'═' * 70}")
-        print(f"  🚀 DEVIATION MAGNET - 24/7 FORWARD TEST (WebSocket Mode)")
+        print(f"  🚀 DEVIATION MAGNET v{__version__} - 24/7 FORWARD TEST")
         print(f"{'═' * 70}")
         print(f"  Timeframe:      {c.timeframe}m (Real-time Stream)")
         print(f"  Symbols:        {len(self.symbols)}")
@@ -1318,9 +1351,8 @@ class Bot:
             # Sort by unrealized PnL (worst first)
             positions_sorted = []
             for sym, pos in self.state.positions.items():
-                df = self.data_manager.get_latest_data(sym)
-                if df is not None and len(df) > 0:
-                    current = df.iloc[-1]["close"]
+                current = self.data_manager.get_latest_price(sym)
+                if current is not None:
                     avg = pos.avg_entry_price
                     price_ratio = current / avg
                     pnl_pct = (price_ratio - 1.0) * 100 if pos.direction == "long" else (1.0 - price_ratio) * 100
