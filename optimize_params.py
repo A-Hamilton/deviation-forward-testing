@@ -50,8 +50,7 @@ class OptConfig:
     # Fixed strategy params (same as forward tester)
     dev_mult: float = 1.5
     base_order_size: float = 10.0
-    dca_scale: float = 5.0
-    max_dca_orders: int = 2
+    max_positions_per_direction: int = 100  # Max positions in same direction
     
     # Fee structure (same as forward tester)
     fee_pct: float = 0.00055  # 0.055% taker
@@ -62,9 +61,9 @@ class OptConfig:
     timeframe: str = "1"
     candles_per_symbol: int = 5000  # Will paginate to get this many (1000 per request)
     max_workers: int = 10
-    tp_lookahead: int = 50  # Bars to look ahead for TP (increased for realism)
+    tp_lookahead: int = 50  # Bars to look ahead for TP per position
     min_trades: int = 5  # Minimum trades for ranking
-    target_win_rate: float = 100.0  # Target win rate % (early stop if below)
+    target_win_rate: float = 0.0  # 0 = no filter (multi-position mode accepts losses)
     
     # Parallelization
     num_processes: int = 0  # 0 = auto (cpu_count)
@@ -91,9 +90,9 @@ class BacktestResult:
     win_rate: float
     
     # Exit breakdown
-    tp_hits: int  # Trades that hit TP within lookahead
-    no_tp_exits: int  # Trades that didn't hit TP (timeout)
-    tp_rate: float  # tp_hits / total_trades
+    tp_exits: int  # Trades exited via TP
+    opposite_exits: int  # Trades exited via opposite signal (stop loss)
+    tp_rate: float  # tp_exits / total_trades
     
     total_pnl_usd: float
     avg_pnl_per_trade: float
@@ -110,6 +109,10 @@ class BacktestResult:
     
     # Symbol coverage
     symbols_traded: int
+    
+    # Multi-position stats
+    max_concurrent_positions: int = 0
+    avg_positions_per_signal: float = 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -236,23 +239,22 @@ class DataFetcher:
 # FAST BACKTESTER (Vectorized)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def fast_backtest_symbol(data: np.ndarray, bb_length: int, mult: float, dev_mult: float,
-                         tp_lookahead: int, total_fee_pct: float, min_vol: float,
-                         base_size: float, entry_cost: float, exit_maker_cost: float,
-                         exit_taker_cost: float, early_stop: bool = True) -> Tuple[float, int, int, int, bool]:
+def fast_backtest_symbol_multipos(data: np.ndarray, bb_length: int, mult: float, dev_mult: float,
+                                   tp_lookahead: int, total_fee_pct: float, min_vol: float,
+                                   base_size: float, entry_cost: float, exit_maker_cost: float,
+                                   exit_taker_cost: float, max_positions: int) -> Tuple[float, int, int, int, int, int, int]:
     """
-    Ultra-fast backtest for a single symbol. 
-    Returns (total_pnl, total_trades, tp_hits, wins, should_stop).
+    Multi-position backtest for a single symbol.
+    Returns (total_pnl, total_trades, tp_exits, opposite_exits, wins, max_concurrent, total_positions_opened).
     
-    Key features:
-    - TP must hit on NEXT bar or later (no same-bar to avoid look-ahead bias)
-    - TP = volatility + ALL fees (matches forward tester exactly)
-    - Early stopping: Returns immediately if any trade loses (for 100% win rate search)
-    - 50-bar lookahead for TP validation
+    Logic:
+    - Same direction signal = add position (up to max_positions)
+    - Opposite direction signal = close ALL positions at opposite band, then open new
+    - Each position can exit independently via TP
     """
     n = len(data)
-    if n < bb_length + tp_lookahead + 1:
-        return 0.0, 0, 0, 0, False
+    if n < bb_length + 10:
+        return 0.0, 0, 0, 0, 0, 0, 0
     
     # Pre-extract columns
     opens = data[:, 0]
@@ -266,45 +268,44 @@ def fast_backtest_symbol(data: np.ndarray, bb_length: int, mult: float, dev_mult
     # Pre-compute volatility for all bars
     vol_raw = (highs - lows) / closes
     
-    # Pre-compute rolling stats for ALL bars (vectorized - much faster)
-    # Using cumsum trick for rolling mean
+    # Pre-compute rolling stats for ALL bars (vectorized)
     cumsum = np.concatenate([[0], np.cumsum(ohlc4)])
     rolling_sum = cumsum[bb_length:] - cumsum[:-bb_length]
     rolling_mean = rolling_sum / bb_length
     
-    # Rolling std using cumsum trick: std = sqrt(E[x^2] - E[x]^2)
     cumsum_sq = np.concatenate([[0], np.cumsum(ohlc4 ** 2)])
     rolling_sum_sq = cumsum_sq[bb_length:] - cumsum_sq[:-bb_length]
     rolling_var = (rolling_sum_sq / bb_length) - (rolling_mean ** 2)
-    # Bessel correction for sample std (ddof=1): multiply by n/(n-1)
     rolling_var = rolling_var * bb_length / (bb_length - 1)
-    rolling_std = np.sqrt(np.maximum(rolling_var, 0))  # Clamp negative due to float precision
+    rolling_std = np.sqrt(np.maximum(rolling_var, 0))
     
-    # Rolling volatility mean
     vol_cumsum = np.concatenate([[0], np.cumsum(vol_raw)])
     vol_rolling_sum = vol_cumsum[bb_length:] - vol_cumsum[:-bb_length]
     rolling_vol = (vol_rolling_sum / bb_length) * 100
     
+    # Position tracking: list of (entry_price, entry_idx, tp_price, direction)
+    # direction: 1=long, -1=short
+    open_positions = []
+    current_direction = 0  # 0=none, 1=long, -1=short
+    
     total_pnl = 0.0
     total_trades = 0
-    tp_hits = 0
+    tp_exits = 0
+    opposite_exits = 0
     wins = 0
+    max_concurrent = 0
+    total_positions_opened = 0
     
-    # Start from bb_length (first valid index for rolling stats)
-    idx = bb_length - 1  # Offset for pre-computed arrays
+    last_signal_bar = -1  # Track to avoid multiple signals on same bar
     
-    while idx < len(rolling_mean) - tp_lookahead - 1:
-        # Use pre-computed values (idx in rolling array = idx + bb_length - 1 in original)
+    for idx in range(len(rolling_mean)):
         orig_idx = idx + bb_length - 1
+        if orig_idx >= n:
+            break
         
         basis = rolling_mean[idx]
         stdev = rolling_std[idx]
         avg_vol = rolling_vol[idx]
-        
-        # Volatility check
-        if avg_vol < min_vol:
-            idx += 1
-            continue
         
         dev = mult * stdev * dev_mult
         upper3 = basis + dev
@@ -312,83 +313,162 @@ def fast_backtest_symbol(data: np.ndarray, bb_length: int, mult: float, dev_mult
         
         high = highs[orig_idx]
         low = lows[orig_idx]
+        close = closes[orig_idx]
         
-        # Check entry (use integers for direction: 1=long, -1=short)
-        entry_price = 0.0
-        direction = 0
+        # 1. Check TP for all open positions on this bar
+        positions_to_remove = []
+        for i, (entry_price, entry_idx, tp_price, direction) in enumerate(open_positions):
+            # Can only exit starting from bar AFTER entry
+            if orig_idx <= entry_idx:
+                continue
+            
+            tp_hit = False
+            if direction == 1 and high >= tp_price:
+                tp_hit = True
+            elif direction == -1 and low <= tp_price:
+                tp_hit = True
+            
+            if tp_hit:
+                # Calculate PnL for this position (maker exit)
+                price_ratio = tp_price / entry_price
+                if direction == 1:
+                    pnl_pct = (price_ratio - 1.0) * 100
+                else:
+                    pnl_pct = (1.0 - price_ratio) * 100
+                
+                entry_fee = base_size * entry_cost
+                exit_fee = base_size * price_ratio * exit_maker_cost
+                gross_pnl = pnl_pct * 0.01 * base_size
+                net_pnl = gross_pnl - entry_fee - exit_fee
+                
+                total_pnl += net_pnl
+                total_trades += 1
+                tp_exits += 1
+                if net_pnl > 0:
+                    wins += 1
+                
+                positions_to_remove.append(i)
         
-        if low <= lower3:
-            entry_price = lower3
-            direction = 1  # long
-        elif high >= upper3:
-            entry_price = upper3
-            direction = -1  # short
+        # Remove TP'd positions (in reverse order to preserve indices)
+        for i in reversed(positions_to_remove):
+            open_positions.pop(i)
         
-        if direction == 0:
-            idx += 1
+        # Update current direction after TP exits
+        if not open_positions:
+            current_direction = 0
+        
+        # 2. Check for new signal (only one signal per bar)
+        if orig_idx == last_signal_bar:
             continue
         
-        # Calculate TP target
-        # TP = avg_volatility + total_fees (to cover costs AND capture movement)
-        target_pct = (avg_vol + total_fee_pct) / 100
+        # Volatility check for new signals only
+        if avg_vol < min_vol:
+            continue
         
-        if direction == 1:  # long
-            target_price = entry_price * (1 + target_pct)
-        else:  # short
-            target_price = entry_price * (1 - target_pct)
+        signal = 0
+        if low <= lower3:
+            signal = 1  # long
+        elif high >= upper3:
+            signal = -1  # short
         
-        # Check lookahead window for TP (starting from NEXT bar - no same-bar TP)
-        tp_hit = False
-        exit_idx = orig_idx + tp_lookahead
+        if signal == 0:
+            continue
         
-        for check_idx in range(orig_idx + 1, min(orig_idx + tp_lookahead + 1, n)):
-            if direction == 1 and highs[check_idx] >= target_price:
-                tp_hit = True
-                exit_idx = check_idx
-                break
-            elif direction == -1 and lows[check_idx] <= target_price:
-                tp_hit = True
-                exit_idx = check_idx
-                break
+        last_signal_bar = orig_idx
         
-        # Calculate PnL
-        if tp_hit:
-            exit_price = target_price
-            tp_hits += 1
-            exit_cost = exit_maker_cost
+        # 3. Handle signal based on current positions
+        if current_direction == 0:
+            # No positions - open new
+            entry_price = lower3 if signal == 1 else upper3
+            target_pct = (avg_vol + total_fee_pct) / 100
+            if signal == 1:
+                tp_price = entry_price * (1 + target_pct)
+            else:
+                tp_price = entry_price * (1 - target_pct)
+            
+            open_positions.append((entry_price, orig_idx, tp_price, signal))
+            current_direction = signal
+            total_positions_opened += 1
+            max_concurrent = max(max_concurrent, len(open_positions))
+        
+        elif current_direction == signal:
+            # Same direction - add position if under limit
+            if len(open_positions) < max_positions:
+                entry_price = lower3 if signal == 1 else upper3
+                target_pct = (avg_vol + total_fee_pct) / 100
+                if signal == 1:
+                    tp_price = entry_price * (1 + target_pct)
+                else:
+                    tp_price = entry_price * (1 - target_pct)
+                
+                open_positions.append((entry_price, orig_idx, tp_price, signal))
+                total_positions_opened += 1
+                max_concurrent = max(max_concurrent, len(open_positions))
+        
         else:
-            exit_price = closes[min(exit_idx, n - 1)]
-            exit_cost = exit_taker_cost
-        
-        price_ratio = exit_price / entry_price
-        if direction == 1:  # long
-            pnl_pct = (price_ratio - 1.0) * 100
-        else:  # short
-            pnl_pct = (1.0 - price_ratio) * 100
-        
-        # Fees (deduct from PnL - NOT already in TP target)
-        entry_fee = base_size * entry_cost
-        exit_fee = base_size * price_ratio * exit_cost
-        gross_pnl = pnl_pct * 0.01 * base_size
-        net_pnl = gross_pnl - entry_fee - exit_fee
-        
-        total_pnl += net_pnl
-        total_trades += 1
-        
-        if net_pnl > 0:
-            wins += 1
-        elif early_stop:
-            return total_pnl, total_trades, tp_hits, wins, True
-        
-        # Skip ahead past this trade (convert back to rolling array index)
-        idx = exit_idx - bb_length + 2
+            # OPPOSITE SIGNAL - close all at opposite band, then open new
+            exit_price = upper3 if signal == 1 else lower3  # Exit at opposite band
+            
+            for (entry_price, entry_idx, tp_price, direction) in open_positions:
+                price_ratio = exit_price / entry_price
+                if direction == 1:
+                    pnl_pct = (price_ratio - 1.0) * 100
+                else:
+                    pnl_pct = (1.0 - price_ratio) * 100
+                
+                entry_fee = base_size * entry_cost
+                exit_fee = base_size * price_ratio * exit_taker_cost
+                gross_pnl = pnl_pct * 0.01 * base_size
+                net_pnl = gross_pnl - entry_fee - exit_fee
+                
+                total_pnl += net_pnl
+                total_trades += 1
+                opposite_exits += 1
+                if net_pnl > 0:
+                    wins += 1
+            
+            open_positions.clear()
+            
+            # Open new position in new direction
+            entry_price = lower3 if signal == 1 else upper3
+            target_pct = (avg_vol + total_fee_pct) / 100
+            if signal == 1:
+                tp_price = entry_price * (1 + target_pct)
+            else:
+                tp_price = entry_price * (1 - target_pct)
+            
+            open_positions.append((entry_price, orig_idx, tp_price, signal))
+            current_direction = signal
+            total_positions_opened += 1
+            max_concurrent = max(max_concurrent, len(open_positions))
     
-    return total_pnl, total_trades, tp_hits, wins, False
+    # Close any remaining positions at last close (taker)
+    if open_positions:
+        last_close = closes[-1]
+        for (entry_price, entry_idx, tp_price, direction) in open_positions:
+            price_ratio = last_close / entry_price
+            if direction == 1:
+                pnl_pct = (price_ratio - 1.0) * 100
+            else:
+                pnl_pct = (1.0 - price_ratio) * 100
+            
+            entry_fee = base_size * entry_cost
+            exit_fee = base_size * price_ratio * exit_taker_cost
+            gross_pnl = pnl_pct * 0.01 * base_size
+            net_pnl = gross_pnl - entry_fee - exit_fee
+            
+            total_pnl += net_pnl
+            total_trades += 1
+            opposite_exits += 1  # Count as opposite exit (forced close)
+            if net_pnl > 0:
+                wins += 1
+    
+    return total_pnl, total_trades, tp_exits, opposite_exits, wins, max_concurrent, total_positions_opened
 
 
-def backtest_params_fast(args: Tuple) -> Tuple[int, float, float, int, int, int, int, bool]:
+def backtest_params_fast(args: Tuple) -> Tuple[int, float, float, int, int, int, int, int, int, int]:
     """Worker function for parallel processing. 
-    Returns (bb_length, mult, pnl, trades, tp_hits, wins, symbols, early_stopped)."""
+    Returns (bb_length, mult, pnl, trades, tp_exits, opposite_exits, wins, symbols, max_concurrent, total_positions)."""
     bb_length, mult, all_data_list, config_dict = args
     
     dev_mult = config_dict["dev_mult"]
@@ -399,35 +479,37 @@ def backtest_params_fast(args: Tuple) -> Tuple[int, float, float, int, int, int,
     entry_cost = config_dict["entry_cost"]
     exit_maker = config_dict["exit_maker_cost"]
     exit_taker = config_dict["exit_taker_cost"]
-    early_stop = config_dict.get("early_stop", True)
+    max_positions = config_dict["max_positions"]
     
     total_pnl = 0.0
     total_trades = 0
-    total_tp_hits = 0
+    total_tp_exits = 0
+    total_opposite_exits = 0
     total_wins = 0
     symbols_traded = 0
+    max_concurrent = 0
+    total_positions_opened = 0
     
     for data in all_data_list:
-        if len(data) < bb_length + tp_lookahead + 1:
+        if len(data) < bb_length + 10:
             continue
         
-        pnl, trades, tp_hits, wins, should_stop = fast_backtest_symbol(
+        pnl, trades, tp_exits, opposite_exits, wins, sym_max_concurrent, sym_positions = fast_backtest_symbol_multipos(
             data, bb_length, mult, dev_mult, tp_lookahead, total_fee_pct,
-            min_vol, base_size, entry_cost, exit_maker, exit_taker, early_stop
+            min_vol, base_size, entry_cost, exit_maker, exit_taker, max_positions
         )
         
         total_pnl += pnl
         total_trades += trades
-        total_tp_hits += tp_hits
+        total_tp_exits += tp_exits
+        total_opposite_exits += opposite_exits
         total_wins += wins
+        total_positions_opened += sym_positions
+        max_concurrent = max(max_concurrent, sym_max_concurrent)
         if trades > 0:
             symbols_traded += 1
-        
-        # Early stop if any symbol had a losing trade
-        if should_stop and early_stop:
-            return bb_length, mult, total_pnl, total_trades, total_tp_hits, total_wins, symbols_traded, True
     
-    return bb_length, mult, total_pnl, total_trades, total_tp_hits, total_wins, symbols_traded, False
+    return bb_length, mult, total_pnl, total_trades, total_tp_exits, total_opposite_exits, total_wins, symbols_traded, max_concurrent, total_positions_opened
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -501,7 +583,7 @@ class ParameterOptimizer:
             "entry_cost": self.config.fee_pct + self.config.slippage_pct,
             "exit_maker_cost": self.config.maker_fee_pct + self.config.slippage_pct,
             "exit_taker_cost": self.config.fee_pct + self.config.slippage_pct,
-            "early_stop": self.config.target_win_rate >= 100.0,  # Enable early stopping for 100% win rate search
+            "max_positions": self.config.max_positions_per_direction,
         }
         
         # 4. Run backtests in parallel
@@ -541,26 +623,32 @@ class ParameterOptimizer:
         
         # 5. Convert raw results to BacktestResult objects
         results = []
-        early_stopped_count = 0
-        perfect_count = 0
+        filtered_count = 0
         
-        for bb_length, mult, total_pnl, total_trades, tp_hits, wins, symbols_traded, early_stopped in raw_results:
-            if total_trades == 0:
+        for bb_length, mult, total_pnl, total_trades, tp_exits, opposite_exits, wins, symbols_traded, max_concurrent, total_positions in raw_results:
+            if total_trades < self.config.min_trades:
                 continue
-            
-            if early_stopped:
-                early_stopped_count += 1
-                continue  # Skip combos that had losing trades (didn't achieve 100% win rate)
             
             losses = total_trades - wins
-            no_tp_exits = total_trades - tp_hits
             win_rate = wins / total_trades * 100 if total_trades > 0 else 0
             
-            # Only include 100% win rate combos
+            # Filter by target win rate if set
             if win_rate < self.config.target_win_rate:
+                filtered_count += 1
                 continue
             
-            perfect_count += 1
+            # Calculate profit factor properly
+            # Need to track gross profit and loss separately for true profit factor
+            # For now use wins/losses as proxy
+            if losses == 0:
+                profit_factor = float('inf')
+            elif wins == 0:
+                profit_factor = 0.0
+            else:
+                # Approximate: assume avg win = avg_pnl when winning, avg loss = avg_pnl when losing
+                profit_factor = wins / losses if losses > 0 else float('inf')
+            
+            avg_positions = total_positions / symbols_traded if symbols_traded > 0 else 0
             
             results.append(BacktestResult(
                 bb_length=bb_length,
@@ -570,23 +658,28 @@ class ParameterOptimizer:
                 wins=wins,
                 losses=losses,
                 win_rate=win_rate,
-                tp_hits=tp_hits,
-                no_tp_exits=no_tp_exits,
-                tp_rate=tp_hits / total_trades * 100 if total_trades > 0 else 0,
+                tp_exits=tp_exits,
+                opposite_exits=opposite_exits,
+                tp_rate=tp_exits / total_trades * 100 if total_trades > 0 else 0,
                 total_pnl_usd=total_pnl,
                 avg_pnl_per_trade=total_pnl / total_trades if total_trades > 0 else 0,
                 best_trade=0.0,  # Not tracked in fast mode
                 worst_trade=0.0,  # Not tracked in fast mode
                 sharpe_ratio=0.0,  # Not tracked in fast mode
-                profit_factor=float('inf') if losses == 0 else wins / losses,
+                profit_factor=profit_factor,
                 max_drawdown_pct=0.0,  # Not tracked in fast mode
                 avg_hold_bars=0.0,  # Not tracked in fast mode
                 symbols_traded=symbols_traded,
+                max_concurrent_positions=max_concurrent,
+                avg_positions_per_signal=avg_positions,
             ))
         
         print(f"\n📊 Results Summary:")
-        print(f"   Early stopped (had losses): {early_stopped_count:,}")
-        print(f"   100% win rate combos: {perfect_count:,}")
+        print(f"   Total combinations tested: {total_combos:,}")
+        print(f"   Below min trades ({self.config.min_trades}): {total_combos - len(results) - filtered_count:,}")
+        if self.config.target_win_rate > 0:
+            print(f"   Below {self.config.target_win_rate}% win rate: {filtered_count:,}")
+        print(f"   Valid results: {len(results):,}")
         
         # 6. Sort by total PnL (most profitable first)
         results.sort(key=lambda r: r.total_pnl_usd, reverse=True)
@@ -600,11 +693,11 @@ class ParameterOptimizer:
         
         fieldnames = [
             "rank", "bb_length", "mult", "total_sigma",
-            "total_trades", "tp_hits", "no_tp_exits", "tp_rate",
+            "total_trades", "tp_exits", "opposite_exits", "tp_rate",
             "wins", "losses", "win_rate",
-            "total_pnl_usd", "avg_pnl_per_trade", "best_trade", "worst_trade",
-            "sharpe_ratio", "profit_factor", "max_drawdown_pct",
-            "avg_hold_bars", "symbols_traded"
+            "total_pnl_usd", "avg_pnl_per_trade",
+            "profit_factor", "symbols_traded",
+            "max_concurrent_positions", "avg_positions_per_signal"
         ]
         
         with open(self.config.output_file, "w", newline="") as f:
@@ -618,21 +711,18 @@ class ParameterOptimizer:
                     "mult": r.mult,
                     "total_sigma": round(r.total_sigma, 2),
                     "total_trades": r.total_trades,
-                    "tp_hits": r.tp_hits,
-                    "no_tp_exits": r.no_tp_exits,
+                    "tp_exits": r.tp_exits,
+                    "opposite_exits": r.opposite_exits,
                     "tp_rate": round(r.tp_rate, 2),
                     "wins": r.wins,
                     "losses": r.losses,
                     "win_rate": round(r.win_rate, 2),
                     "total_pnl_usd": round(r.total_pnl_usd, 2),
                     "avg_pnl_per_trade": round(r.avg_pnl_per_trade, 4),
-                    "best_trade": round(r.best_trade, 4),
-                    "worst_trade": round(r.worst_trade, 4),
-                    "sharpe_ratio": round(r.sharpe_ratio, 4),
                     "profit_factor": round(r.profit_factor, 4) if r.profit_factor != float('inf') else "inf",
-                    "max_drawdown_pct": round(r.max_drawdown_pct, 2),
-                    "avg_hold_bars": round(r.avg_hold_bars, 1),
                     "symbols_traded": r.symbols_traded,
+                    "max_concurrent_positions": r.max_concurrent_positions,
+                    "avg_positions_per_signal": round(r.avg_positions_per_signal, 1),
                 })
         
         print(f"\n💾 Full results saved to: {self.config.output_file}")
@@ -640,38 +730,44 @@ class ParameterOptimizer:
     def print_leaderboard(self, results: List[BacktestResult]):
         """Print top performers to console."""
         if not results:
-            print("\n❌ No parameter combinations achieved 100% win rate!")
-            print("   Try: Increasing mult range, increasing bb_length, or using more candles")
+            print("\n❌ No parameter combinations met the criteria!")
+            print("   Try: Lowering --win_rate, adjusting parameter ranges, or using more candles")
             return
         
         top_n = min(self.config.top_n, len(results))
         
-        print("\n" + "═" * 115)
-        print(f"  🏆 TOP {top_n} PARAMETER COMBINATIONS (100% Win Rate, Ranked by Total PnL)")
-        print("═" * 115)
-        print(f"{'Rank':<5} {'BB Len':<8} {'Mult':<6} {'Sigma':<7} {'Trades':<8} {'TP%':<7} {'Win%':<7} "
-              f"{'PnL $':<10} {'$/Trade':<9} {'PF':<8} {'Symbols':<8}")
-        print("─" * 115)
+        print("\n" + "═" * 130)
+        print(f"  🏆 TOP {top_n} PARAMETER COMBINATIONS (Multi-Position Mode, Ranked by Total PnL)")
+        print("═" * 130)
+        print(f"{'Rank':<5} {'BB Len':<8} {'Mult':<6} {'Sigma':<7} {'Trades':<8} {'TP%':<7} {'Opp%':<7} {'Win%':<7} "
+              f"{'PnL $':<10} {'$/Trade':<9} {'MaxPos':<8} {'Symbols':<8}")
+        print("─" * 130)
         
         for rank, r in enumerate(results[:top_n], 1):
-            pf_str = f"{r.profit_factor:.2f}" if r.profit_factor != float('inf') else "∞"
+            opp_rate = r.opposite_exits / r.total_trades * 100 if r.total_trades > 0 else 0
             print(f"{rank:<5} {r.bb_length:<8} {r.mult:<6.1f} {r.total_sigma:<7.1f} {r.total_trades:<8} "
-                  f"{r.tp_rate:<7.1f} {r.win_rate:<7.1f} {r.total_pnl_usd:<10.2f} {r.avg_pnl_per_trade:<9.4f} "
-                  f"{pf_str:<8} {r.symbols_traded:<8}")
+                  f"{r.tp_rate:<7.1f} {opp_rate:<7.1f} {r.win_rate:<7.1f} {r.total_pnl_usd:<10.2f} {r.avg_pnl_per_trade:<9.4f} "
+                  f"{r.max_concurrent_positions:<8} {r.symbols_traded:<8}")
         
-        print("═" * 115)
+        print("═" * 130)
         
         # Recommendations
         if results:
             best = results[0]
-            print(f"\n📌 RECOMMENDED: bb_length={best.bb_length}, mult={best.mult} (Total Sigma: {best.total_sigma:.1f})")
-            print(f"   Expected: {best.total_trades} trades, {best.tp_rate:.1f}% TP rate, 100% win rate, ${best.total_pnl_usd:.2f} PnL")
+            print(f"\n📌 BEST PNL: bb_length={best.bb_length}, mult={best.mult} (Sigma: {best.total_sigma:.1f})")
+            print(f"   {best.total_trades} trades | {best.win_rate:.1f}% win rate | {best.tp_rate:.1f}% TP | ${best.total_pnl_usd:.2f} PnL")
             
-            # Also show highest trade count with 100% win rate
+            # Show highest win rate
+            best_wr = max(results, key=lambda r: (r.win_rate, r.total_pnl_usd))
+            if best_wr != best:
+                print(f"\n🎯 BEST WIN RATE: bb_length={best_wr.bb_length}, mult={best_wr.mult}")
+                print(f"   {best_wr.total_trades} trades | {best_wr.win_rate:.1f}% win rate | ${best_wr.total_pnl_usd:.2f} PnL")
+            
+            # Show most trades
             most_trades = max(results, key=lambda r: r.total_trades)
-            if most_trades != best:
-                print(f"\n🎯 MOST TRADES (100% WR): bb_length={most_trades.bb_length}, mult={most_trades.mult}")
-                print(f"   Expected: {most_trades.total_trades} trades, ${most_trades.total_pnl_usd:.2f} PnL")
+            if most_trades != best and most_trades != best_wr:
+                print(f"\n📈 MOST TRADES: bb_length={most_trades.bb_length}, mult={most_trades.mult}")
+                print(f"   {most_trades.total_trades} trades | {most_trades.win_rate:.1f}% win rate | ${most_trades.total_pnl_usd:.2f} PnL")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -695,7 +791,8 @@ def parse_args():
     parser.add_argument("--candles", type=int, default=5000, help="Candles per symbol (default: 5000, paginates)")
     parser.add_argument("--lookahead", type=int, default=50, help="TP lookahead bars (default: 50)")
     parser.add_argument("--min_trades", type=int, default=5, help="Minimum trades for ranking (default: 5)")
-    parser.add_argument("--win_rate", type=float, default=100.0, help="Target win rate %% (default: 100)")
+    parser.add_argument("--win_rate", type=float, default=0.0, help="Min win rate %% filter (default: 0, no filter)")
+    parser.add_argument("--max_positions", type=int, default=100, help="Max positions per direction (default: 100)")
     
     # Output
     parser.add_argument("--top", type=int, default=10, help="Show top N results (default: 10)")
@@ -718,6 +815,7 @@ def main():
         tp_lookahead=args.lookahead,
         min_trades=args.min_trades,
         target_win_rate=args.win_rate,
+        max_positions_per_direction=args.max_positions,
         top_n=args.top,
         output_file=Path(args.output),
     )
