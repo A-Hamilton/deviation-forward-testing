@@ -43,7 +43,7 @@ except ImportError:
     def json_dumps(obj, indent=None): return _json.dumps(obj, indent=indent)
 
 # Version tracking
-__version__ = "2.0.0"
+__version__ = "2.1.0"  # Optimized params: bb_length=5, mult=6.0
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -53,9 +53,9 @@ __version__ = "2.0.0"
 class Config:
     """Trading configuration parameters."""
 
-    # Indicator settings
-    bb_length: int = 20
-    mult: float = 3.0  # Lower for more trades - will be tuned by optimizer
+    # Indicator settings (optimized: best PnL from optimizer)
+    bb_length: int = 5
+    mult: float = 6.0  # Optimized: 996 trades, 88.7% WR, $10.92 PnL, PF=1.31
     dev_mult: float = 1.5
 
     # Timing
@@ -73,6 +73,7 @@ class Config:
     fee_pct: float = 0.00055  # 0.055% taker
     maker_fee_pct: float = 0.0002  # 0.02% maker
     slippage_pct: float = 0.0005  # 0.05%
+    base_profit_pct: float = 0.1  # 0.1% minimum profit target
     
     # Volatility filter
     min_volatility_pct: float = 0.2
@@ -105,8 +106,10 @@ class Config:
         self.entry_cost_pct = self.fee_pct + self.slippage_pct
         self.exit_taker_cost_pct = self.fee_pct + self.slippage_pct
         self.exit_maker_cost_pct = self.maker_fee_pct + self.slippage_pct
-        # TP uses maker for exit (limit order)
-        self.total_fee_pct_for_tp = (self.fee_pct + self.maker_fee_pct + self.slippage_pct * 2) * 100
+        # TP = base_profit + volatility + fees
+        # fees = entry taker + exit maker + slippage both ways
+        fee_overhead = (self.fee_pct + self.maker_fee_pct + self.slippage_pct * 2) * 100
+        self.total_fee_pct_for_tp = self.base_profit_pct + fee_overhead  # 0.1% + 0.175% = 0.275%
 
     @property
     def trades_file(self) -> Path:
@@ -683,21 +686,25 @@ class DeviationMagnetStrategy:
         """
         Check if position should exit via TP.
         Returns (should_exit, target_price).
+        
+        TP formula (matches optimizer):
+        target_pct = (avg_volatility_pct / 100) + (total_fee_pct / 100)
+                   = volatility as decimal + fees as decimal
         """
         avg_entry = pos.entry_price
-        total_fee_pct = self.config.total_fee_pct_for_tp
+        total_fee_pct = self.config.total_fee_pct_for_tp  # 0.275% = base 0.1% + fees 0.175%
         direction = pos.direction
         
-        # TP = volatility + fees
-        target_pct = data.avg_volatility_pct + total_fee_pct
-        pct_mult = target_pct / 100
+        # TP = volatility + fees (both as decimals, matching optimizer)
+        # avg_volatility_pct is already in % (e.g., 0.5 means 0.5%)
+        target_pct = (data.avg_volatility_pct * 0.01) + (total_fee_pct / 100.0)
         
         if direction == "long":
-            target_price = avg_entry * (1 + pct_mult)
+            target_price = avg_entry * (1.0 + target_pct)
             if data.high >= target_price:
                 return True, target_price
         else:
-            target_price = avg_entry * (1 - pct_mult)
+            target_price = avg_entry * (1.0 - target_pct)
             if data.low <= target_price:
                 return True, target_price
 

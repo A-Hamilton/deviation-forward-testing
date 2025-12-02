@@ -56,12 +56,12 @@ class OptConfig:
     fee_pct: float = 0.00055  # 0.055% taker
     maker_fee_pct: float = 0.0002  # 0.02% maker
     slippage_pct: float = 0.0005  # 0.05%
+    base_profit_pct: float = 0.1  # 0.1% minimum profit target
     
     # Data settings
     timeframe: str = "1"
     candles_per_symbol: int = 5000  # Will paginate to get this many (1000 per request)
     max_workers: int = 10
-    tp_lookahead: int = 50  # Bars to look ahead for TP per position
     min_trades: int = 5  # Minimum trades for ranking
     target_win_rate: float = 0.0  # 0 = no filter (multi-position mode accepts losses)
     
@@ -240,52 +240,69 @@ class DataFetcher:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def fast_backtest_symbol_multipos(data: np.ndarray, bb_length: int, mult: float, dev_mult: float,
-                                   tp_lookahead: int, total_fee_pct: float, min_vol: float,
+                                   total_fee_pct: float, min_vol: float,
                                    base_size: float, entry_cost: float, exit_maker_cost: float,
-                                   exit_taker_cost: float, max_positions: int) -> Tuple[float, int, int, int, int, int, int]:
+                                   exit_taker_cost: float, max_positions: int) -> Tuple[float, int, int, int, int, int, int, float, float, float, float, int]:
     """
     Multi-position backtest for a single symbol.
-    Returns (total_pnl, total_trades, tp_exits, opposite_exits, wins, max_concurrent, total_positions_opened).
+    Returns (total_pnl, total_trades, tp_exits, opposite_exits, wins, max_concurrent, 
+             total_positions_opened, gross_profit, gross_loss, best_trade, worst_trade, total_hold_bars).
     
     Logic:
-    - Same direction signal = add position (up to max_positions)
+    - Same direction signal = add position (up to max_positions TOTAL)
     - Opposite direction signal = close ALL positions at opposite band, then open new
-    - Each position can exit independently via TP
+    - Each position can exit independently via TP (checked every bar)
     """
     n = len(data)
     if n < bb_length + 10:
-        return 0.0, 0, 0, 0, 0, 0, 0
+        return 0.0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0
     
-    # Pre-extract columns
-    opens = data[:, 0]
+    # Pre-compute constants (avoid repeated multiplication in loop)
+    combined_mult = mult * dev_mult
+    fee_pct_decimal = total_fee_pct / 100.0
+    inv_bb_length = 1.0 / bb_length
+    bessel_correction = bb_length / (bb_length - 1)
+    
+    # Pre-extract columns (views, no copy)
     highs = data[:, 1]
     lows = data[:, 2]
     closes = data[:, 3]
     
     # Pre-compute OHLC4 for all bars
-    ohlc4 = (opens + highs + lows + closes) * 0.25
+    ohlc4 = (data[:, 0] + highs + lows + closes) * 0.25
     
     # Pre-compute volatility for all bars
     vol_raw = (highs - lows) / closes
     
     # Pre-compute rolling stats for ALL bars (vectorized)
-    cumsum = np.concatenate([[0], np.cumsum(ohlc4)])
+    cumsum = np.empty(n + 1, dtype=np.float64)
+    cumsum[0] = 0.0
+    np.cumsum(ohlc4, out=cumsum[1:])
     rolling_sum = cumsum[bb_length:] - cumsum[:-bb_length]
-    rolling_mean = rolling_sum / bb_length
+    rolling_mean = rolling_sum * inv_bb_length
     
-    cumsum_sq = np.concatenate([[0], np.cumsum(ohlc4 ** 2)])
+    cumsum_sq = np.empty(n + 1, dtype=np.float64)
+    cumsum_sq[0] = 0.0
+    np.cumsum(ohlc4 * ohlc4, out=cumsum_sq[1:])
     rolling_sum_sq = cumsum_sq[bb_length:] - cumsum_sq[:-bb_length]
-    rolling_var = (rolling_sum_sq / bb_length) - (rolling_mean ** 2)
-    rolling_var = rolling_var * bb_length / (bb_length - 1)
-    rolling_std = np.sqrt(np.maximum(rolling_var, 0))
+    rolling_var = (rolling_sum_sq * inv_bb_length) - (rolling_mean * rolling_mean)
+    rolling_var *= bessel_correction
+    rolling_std = np.sqrt(np.maximum(rolling_var, 0.0))
     
-    vol_cumsum = np.concatenate([[0], np.cumsum(vol_raw)])
+    vol_cumsum = np.empty(n + 1, dtype=np.float64)
+    vol_cumsum[0] = 0.0
+    np.cumsum(vol_raw, out=vol_cumsum[1:])
     vol_rolling_sum = vol_cumsum[bb_length:] - vol_cumsum[:-bb_length]
-    rolling_vol = (vol_rolling_sum / bb_length) * 100
+    rolling_vol = vol_rolling_sum * inv_bb_length * 100.0
     
-    # Position tracking: list of (entry_price, entry_idx, tp_price, direction)
-    # direction: 1=long, -1=short
-    open_positions = []
+    # Position tracking using pre-allocated arrays for better performance
+    # Columns: [entry_price, entry_idx, tp_price, direction]
+    max_pos_array = max(max_positions, 20)  # Pre-allocate for typical usage
+    pos_entry_price = np.zeros(max_pos_array, dtype=np.float64)
+    pos_entry_idx = np.zeros(max_pos_array, dtype=np.int32)
+    pos_tp_price = np.zeros(max_pos_array, dtype=np.float64)
+    pos_direction = np.zeros(max_pos_array, dtype=np.int8)
+    num_positions = 0
     current_direction = 0  # 0=none, 1=long, -1=short
     
     total_pnl = 0.0
@@ -295,10 +312,16 @@ def fast_backtest_symbol_multipos(data: np.ndarray, bb_length: int, mult: float,
     wins = 0
     max_concurrent = 0
     total_positions_opened = 0
+    gross_profit = 0.0
+    gross_loss = 0.0
+    best_trade = -1e30  # Use large negative instead of -inf for speed
+    worst_trade = 1e30
+    total_hold_bars = 0
     
     last_signal_bar = -1  # Track to avoid multiple signals on same bar
     
-    for idx in range(len(rolling_mean)):
+    num_bars = len(rolling_mean)
+    for idx in range(num_bars):
         orig_idx = idx + bb_length - 1
         if orig_idx >= n:
             break
@@ -307,34 +330,36 @@ def fast_backtest_symbol_multipos(data: np.ndarray, bb_length: int, mult: float,
         stdev = rolling_std[idx]
         avg_vol = rolling_vol[idx]
         
-        dev = mult * stdev * dev_mult
+        dev = combined_mult * stdev  # Pre-computed mult * dev_mult
         upper3 = basis + dev
         lower3 = basis - dev
         
         high = highs[orig_idx]
         low = lows[orig_idx]
-        close = closes[orig_idx]
         
         # 1. Check TP for all open positions on this bar
-        positions_to_remove = []
-        for i, (entry_price, entry_idx, tp_price, direction) in enumerate(open_positions):
+        # Use in-place removal by swapping with last element
+        i = 0
+        while i < num_positions:
+            entry_price = pos_entry_price[i]
+            entry_idx = pos_entry_idx[i]
+            tp_price = pos_tp_price[i]
+            direction = pos_direction[i]
+            
             # Can only exit starting from bar AFTER entry
             if orig_idx <= entry_idx:
+                i += 1
                 continue
             
-            tp_hit = False
-            if direction == 1 and high >= tp_price:
-                tp_hit = True
-            elif direction == -1 and low <= tp_price:
-                tp_hit = True
+            tp_hit = (direction == 1 and high >= tp_price) or (direction == -1 and low <= tp_price)
             
             if tp_hit:
                 # Calculate PnL for this position (maker exit)
                 price_ratio = tp_price / entry_price
                 if direction == 1:
-                    pnl_pct = (price_ratio - 1.0) * 100
+                    pnl_pct = (price_ratio - 1.0) * 100.0
                 else:
-                    pnl_pct = (1.0 - price_ratio) * 100
+                    pnl_pct = (1.0 - price_ratio) * 100.0
                 
                 entry_fee = base_size * entry_cost
                 exit_fee = base_size * price_ratio * exit_maker_cost
@@ -344,17 +369,34 @@ def fast_backtest_symbol_multipos(data: np.ndarray, bb_length: int, mult: float,
                 total_pnl += net_pnl
                 total_trades += 1
                 tp_exits += 1
-                if net_pnl > 0:
-                    wins += 1
+                total_hold_bars += orig_idx - entry_idx
                 
-                positions_to_remove.append(i)
-        
-        # Remove TP'd positions (in reverse order to preserve indices)
-        for i in reversed(positions_to_remove):
-            open_positions.pop(i)
+                # Track profit/loss for profit factor
+                if net_pnl > 0.0:
+                    wins += 1
+                    gross_profit += net_pnl
+                else:
+                    gross_loss -= net_pnl  # abs(net_pnl) when net_pnl <= 0
+                
+                # Track best/worst
+                if net_pnl > best_trade:
+                    best_trade = net_pnl
+                if net_pnl < worst_trade:
+                    worst_trade = net_pnl
+                
+                # Remove by swapping with last position (O(1) instead of O(n))
+                num_positions -= 1
+                if i < num_positions:
+                    pos_entry_price[i] = pos_entry_price[num_positions]
+                    pos_entry_idx[i] = pos_entry_idx[num_positions]
+                    pos_tp_price[i] = pos_tp_price[num_positions]
+                    pos_direction[i] = pos_direction[num_positions]
+                # Don't increment i since we swapped in a new element
+            else:
+                i += 1
         
         # Update current direction after TP exits
-        if not open_positions:
+        if num_positions == 0:
             current_direction = 0
         
         # 2. Check for new signal (only one signal per bar)
@@ -380,41 +422,56 @@ def fast_backtest_symbol_multipos(data: np.ndarray, bb_length: int, mult: float,
         if current_direction == 0:
             # No positions - open new
             entry_price = lower3 if signal == 1 else upper3
-            target_pct = (avg_vol + total_fee_pct) / 100
+            target_pct = avg_vol * 0.01 + fee_pct_decimal
             if signal == 1:
-                tp_price = entry_price * (1 + target_pct)
+                tp_price = entry_price * (1.0 + target_pct)
             else:
-                tp_price = entry_price * (1 - target_pct)
+                tp_price = entry_price * (1.0 - target_pct)
             
-            open_positions.append((entry_price, orig_idx, tp_price, signal))
+            # Add position to arrays
+            pos_entry_price[num_positions] = entry_price
+            pos_entry_idx[num_positions] = orig_idx
+            pos_tp_price[num_positions] = tp_price
+            pos_direction[num_positions] = signal
+            num_positions += 1
             current_direction = signal
             total_positions_opened += 1
-            max_concurrent = max(max_concurrent, len(open_positions))
+            if num_positions > max_concurrent:
+                max_concurrent = num_positions
         
         elif current_direction == signal:
             # Same direction - add position if under limit
-            if len(open_positions) < max_positions:
+            if num_positions < max_positions:
                 entry_price = lower3 if signal == 1 else upper3
-                target_pct = (avg_vol + total_fee_pct) / 100
+                target_pct = avg_vol * 0.01 + fee_pct_decimal
                 if signal == 1:
-                    tp_price = entry_price * (1 + target_pct)
+                    tp_price = entry_price * (1.0 + target_pct)
                 else:
-                    tp_price = entry_price * (1 - target_pct)
+                    tp_price = entry_price * (1.0 - target_pct)
                 
-                open_positions.append((entry_price, orig_idx, tp_price, signal))
+                pos_entry_price[num_positions] = entry_price
+                pos_entry_idx[num_positions] = orig_idx
+                pos_tp_price[num_positions] = tp_price
+                pos_direction[num_positions] = signal
+                num_positions += 1
                 total_positions_opened += 1
-                max_concurrent = max(max_concurrent, len(open_positions))
+                if num_positions > max_concurrent:
+                    max_concurrent = num_positions
         
         else:
             # OPPOSITE SIGNAL - close all at opposite band, then open new
             exit_price = upper3 if signal == 1 else lower3  # Exit at opposite band
             
-            for (entry_price, entry_idx, tp_price, direction) in open_positions:
+            for i in range(num_positions):
+                entry_price = pos_entry_price[i]
+                entry_idx = pos_entry_idx[i]
+                direction = pos_direction[i]
+                
                 price_ratio = exit_price / entry_price
                 if direction == 1:
-                    pnl_pct = (price_ratio - 1.0) * 100
+                    pnl_pct = (price_ratio - 1.0) * 100.0
                 else:
-                    pnl_pct = (1.0 - price_ratio) * 100
+                    pnl_pct = (1.0 - price_ratio) * 100.0
                 
                 entry_fee = base_size * entry_cost
                 exit_fee = base_size * price_ratio * exit_taker_cost
@@ -424,33 +481,55 @@ def fast_backtest_symbol_multipos(data: np.ndarray, bb_length: int, mult: float,
                 total_pnl += net_pnl
                 total_trades += 1
                 opposite_exits += 1
-                if net_pnl > 0:
+                total_hold_bars += orig_idx - entry_idx
+                
+                # Track profit/loss for profit factor
+                if net_pnl > 0.0:
                     wins += 1
+                    gross_profit += net_pnl
+                else:
+                    gross_loss -= net_pnl
+                
+                # Track best/worst
+                if net_pnl > best_trade:
+                    best_trade = net_pnl
+                if net_pnl < worst_trade:
+                    worst_trade = net_pnl
             
-            open_positions.clear()
+            num_positions = 0  # Clear all positions
             
             # Open new position in new direction
             entry_price = lower3 if signal == 1 else upper3
-            target_pct = (avg_vol + total_fee_pct) / 100
+            target_pct = avg_vol * 0.01 + fee_pct_decimal
             if signal == 1:
-                tp_price = entry_price * (1 + target_pct)
+                tp_price = entry_price * (1.0 + target_pct)
             else:
-                tp_price = entry_price * (1 - target_pct)
+                tp_price = entry_price * (1.0 - target_pct)
             
-            open_positions.append((entry_price, orig_idx, tp_price, signal))
+            pos_entry_price[num_positions] = entry_price
+            pos_entry_idx[num_positions] = orig_idx
+            pos_tp_price[num_positions] = tp_price
+            pos_direction[num_positions] = signal
+            num_positions += 1
             current_direction = signal
             total_positions_opened += 1
-            max_concurrent = max(max_concurrent, len(open_positions))
+            if num_positions > max_concurrent:
+                max_concurrent = num_positions
     
     # Close any remaining positions at last close (taker)
-    if open_positions:
+    if num_positions > 0:
         last_close = closes[-1]
-        for (entry_price, entry_idx, tp_price, direction) in open_positions:
+        last_idx = n - 1
+        for i in range(num_positions):
+            entry_price = pos_entry_price[i]
+            entry_idx = pos_entry_idx[i]
+            direction = pos_direction[i]
+            
             price_ratio = last_close / entry_price
             if direction == 1:
-                pnl_pct = (price_ratio - 1.0) * 100
+                pnl_pct = (price_ratio - 1.0) * 100.0
             else:
-                pnl_pct = (1.0 - price_ratio) * 100
+                pnl_pct = (1.0 - price_ratio) * 100.0
             
             entry_fee = base_size * entry_cost
             exit_fee = base_size * price_ratio * exit_taker_cost
@@ -460,19 +539,38 @@ def fast_backtest_symbol_multipos(data: np.ndarray, bb_length: int, mult: float,
             total_pnl += net_pnl
             total_trades += 1
             opposite_exits += 1  # Count as opposite exit (forced close)
-            if net_pnl > 0:
+            total_hold_bars += last_idx - entry_idx
+            
+            # Track profit/loss for profit factor
+            if net_pnl > 0.0:
                 wins += 1
+                gross_profit += net_pnl
+            else:
+                gross_loss -= net_pnl
+            
+            # Track best/worst
+            if net_pnl > best_trade:
+                best_trade = net_pnl
+            if net_pnl < worst_trade:
+                worst_trade = net_pnl
     
-    return total_pnl, total_trades, tp_exits, opposite_exits, wins, max_concurrent, total_positions_opened
+    # Handle case where no trades occurred
+    if total_trades == 0:
+        best_trade = 0.0
+        worst_trade = 0.0
+    
+    return (total_pnl, total_trades, tp_exits, opposite_exits, wins, max_concurrent, 
+            total_positions_opened, gross_profit, gross_loss, best_trade, worst_trade, total_hold_bars)
 
 
-def backtest_params_fast(args: Tuple) -> Tuple[int, float, float, int, int, int, int, int, int, int]:
+def backtest_params_fast(args: Tuple) -> Tuple[int, float, float, int, int, int, int, int, int, int, float, float, float, float, int]:
     """Worker function for parallel processing. 
-    Returns (bb_length, mult, pnl, trades, tp_exits, opposite_exits, wins, symbols, max_concurrent, total_positions)."""
+    Returns (bb_length, mult, pnl, trades, tp_exits, opposite_exits, wins, symbols, max_concurrent, 
+             total_positions, gross_profit, gross_loss, best_trade, worst_trade, total_hold_bars)."""
     bb_length, mult, all_data_list, config_dict = args
     
+    # Unpack config once
     dev_mult = config_dict["dev_mult"]
-    tp_lookahead = config_dict["tp_lookahead"]
     total_fee_pct = config_dict["total_fee_pct"]
     min_vol = config_dict["min_volatility_pct"]
     base_size = config_dict["base_order_size"]
@@ -481,6 +579,7 @@ def backtest_params_fast(args: Tuple) -> Tuple[int, float, float, int, int, int,
     exit_taker = config_dict["exit_taker_cost"]
     max_positions = config_dict["max_positions"]
     
+    # Accumulators
     total_pnl = 0.0
     total_trades = 0
     total_tp_exits = 0
@@ -489,15 +588,25 @@ def backtest_params_fast(args: Tuple) -> Tuple[int, float, float, int, int, int,
     symbols_traded = 0
     max_concurrent = 0
     total_positions_opened = 0
+    total_gross_profit = 0.0
+    total_gross_loss = 0.0
+    best_trade = -1e30
+    worst_trade = 1e30
+    total_hold_bars = 0
+    
+    min_len = bb_length + 10
     
     for data in all_data_list:
-        if len(data) < bb_length + 10:
+        if len(data) < min_len:
             continue
         
-        pnl, trades, tp_exits, opposite_exits, wins, sym_max_concurrent, sym_positions = fast_backtest_symbol_multipos(
-            data, bb_length, mult, dev_mult, tp_lookahead, total_fee_pct,
+        result = fast_backtest_symbol_multipos(
+            data, bb_length, mult, dev_mult, total_fee_pct,
             min_vol, base_size, entry_cost, exit_maker, exit_taker, max_positions
         )
+        
+        pnl, trades, tp_exits, opposite_exits, wins, sym_max_concurrent, sym_positions, \
+        gross_profit, gross_loss, sym_best, sym_worst, hold_bars = result
         
         total_pnl += pnl
         total_trades += trades
@@ -505,11 +614,28 @@ def backtest_params_fast(args: Tuple) -> Tuple[int, float, float, int, int, int,
         total_opposite_exits += opposite_exits
         total_wins += wins
         total_positions_opened += sym_positions
-        max_concurrent = max(max_concurrent, sym_max_concurrent)
+        total_gross_profit += gross_profit
+        total_gross_loss += gross_loss
+        total_hold_bars += hold_bars
+        
+        if sym_max_concurrent > max_concurrent:
+            max_concurrent = sym_max_concurrent
+        
         if trades > 0:
             symbols_traded += 1
+            if sym_best > best_trade:
+                best_trade = sym_best
+            if sym_worst < worst_trade:
+                worst_trade = sym_worst
     
-    return bb_length, mult, total_pnl, total_trades, total_tp_exits, total_opposite_exits, total_wins, symbols_traded, max_concurrent, total_positions_opened
+    # Handle no trades case
+    if total_trades == 0:
+        best_trade = 0.0
+        worst_trade = 0.0
+    
+    return (bb_length, mult, total_pnl, total_trades, total_tp_exits, total_opposite_exits, 
+            total_wins, symbols_traded, max_concurrent, total_positions_opened,
+            total_gross_profit, total_gross_loss, best_trade, worst_trade, total_hold_bars)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -572,11 +698,23 @@ class ParameterOptimizer:
         all_data_list = list(all_data.values())
         
         # Create config dict for workers
-        # total_fee_pct matches forward tester: (fee + maker + slippage*2) * 100
-        total_fee_pct = (self.config.fee_pct + self.config.maker_fee_pct + self.config.slippage_pct * 2) * 100
+        # Fee breakdown for transparency
+        entry_fee = (self.config.fee_pct + self.config.slippage_pct) * 100
+        exit_maker_fee = (self.config.maker_fee_pct + self.config.slippage_pct) * 100
+        exit_taker_fee = (self.config.fee_pct + self.config.slippage_pct) * 100
+        fee_overhead = (self.config.fee_pct + self.config.maker_fee_pct + self.config.slippage_pct * 2) * 100
+        total_fee_pct = self.config.base_profit_pct + fee_overhead
+        
+        print(f"\n💰 Fee Structure:")
+        print(f"   Entry (taker + slippage): {entry_fee:.3f}%")
+        print(f"   Exit TP (maker + slippage): {exit_maker_fee:.3f}%")
+        print(f"   Exit SL (taker + slippage): {exit_taker_fee:.3f}%")
+        print(f"   Total fee overhead: {fee_overhead:.3f}%")
+        print(f"   Base profit target: {self.config.base_profit_pct:.3f}%")
+        print(f"   TP = volatility + {total_fee_pct:.3f}%")
+        
         config_dict = {
             "dev_mult": self.config.dev_mult,
-            "tp_lookahead": self.config.tp_lookahead,
             "total_fee_pct": total_fee_pct,
             "min_volatility_pct": self.config.min_volatility_pct,
             "base_order_size": self.config.base_order_size,
@@ -625,7 +763,9 @@ class ParameterOptimizer:
         results = []
         filtered_count = 0
         
-        for bb_length, mult, total_pnl, total_trades, tp_exits, opposite_exits, wins, symbols_traded, max_concurrent, total_positions in raw_results:
+        for (bb_length, mult, total_pnl, total_trades, tp_exits, opposite_exits, wins, 
+             symbols_traded, max_concurrent, total_positions, gross_profit, gross_loss,
+             best_trade, worst_trade, total_hold_bars) in raw_results:
             if total_trades < self.config.min_trades:
                 continue
             
@@ -637,18 +777,14 @@ class ParameterOptimizer:
                 filtered_count += 1
                 continue
             
-            # Calculate profit factor properly
-            # Need to track gross profit and loss separately for true profit factor
-            # For now use wins/losses as proxy
-            if losses == 0:
-                profit_factor = float('inf')
-            elif wins == 0:
-                profit_factor = 0.0
+            # Calculate REAL profit factor from gross profit / gross loss
+            if gross_loss == 0:
+                profit_factor = float('inf') if gross_profit > 0 else 0.0
             else:
-                # Approximate: assume avg win = avg_pnl when winning, avg loss = avg_pnl when losing
-                profit_factor = wins / losses if losses > 0 else float('inf')
+                profit_factor = gross_profit / gross_loss
             
             avg_positions = total_positions / symbols_traded if symbols_traded > 0 else 0
+            avg_hold = total_hold_bars / total_trades if total_trades > 0 else 0
             
             results.append(BacktestResult(
                 bb_length=bb_length,
@@ -663,12 +799,12 @@ class ParameterOptimizer:
                 tp_rate=tp_exits / total_trades * 100 if total_trades > 0 else 0,
                 total_pnl_usd=total_pnl,
                 avg_pnl_per_trade=total_pnl / total_trades if total_trades > 0 else 0,
-                best_trade=0.0,  # Not tracked in fast mode
-                worst_trade=0.0,  # Not tracked in fast mode
-                sharpe_ratio=0.0,  # Not tracked in fast mode
+                best_trade=best_trade,
+                worst_trade=worst_trade,
+                sharpe_ratio=0.0,  # Would need trade-by-trade returns to calculate
                 profit_factor=profit_factor,
-                max_drawdown_pct=0.0,  # Not tracked in fast mode
-                avg_hold_bars=0.0,  # Not tracked in fast mode
+                max_drawdown_pct=0.0,  # Would need equity curve to calculate
+                avg_hold_bars=avg_hold,
                 symbols_traded=symbols_traded,
                 max_concurrent_positions=max_concurrent,
                 avg_positions_per_signal=avg_positions,
@@ -696,7 +832,8 @@ class ParameterOptimizer:
             "total_trades", "tp_exits", "opposite_exits", "tp_rate",
             "wins", "losses", "win_rate",
             "total_pnl_usd", "avg_pnl_per_trade",
-            "profit_factor", "symbols_traded",
+            "best_trade", "worst_trade", "profit_factor", 
+            "avg_hold_bars", "symbols_traded",
             "max_concurrent_positions", "avg_positions_per_signal"
         ]
         
@@ -719,7 +856,10 @@ class ParameterOptimizer:
                     "win_rate": round(r.win_rate, 2),
                     "total_pnl_usd": round(r.total_pnl_usd, 2),
                     "avg_pnl_per_trade": round(r.avg_pnl_per_trade, 4),
-                    "profit_factor": round(r.profit_factor, 4) if r.profit_factor != float('inf') else "inf",
+                    "best_trade": round(r.best_trade, 4),
+                    "worst_trade": round(r.worst_trade, 4),
+                    "profit_factor": round(r.profit_factor, 2) if r.profit_factor != float('inf') else "inf",
+                    "avg_hold_bars": round(r.avg_hold_bars, 1),
                     "symbols_traded": r.symbols_traded,
                     "max_concurrent_positions": r.max_concurrent_positions,
                     "avg_positions_per_signal": round(r.avg_positions_per_signal, 1),
@@ -736,38 +876,43 @@ class ParameterOptimizer:
         
         top_n = min(self.config.top_n, len(results))
         
-        print("\n" + "═" * 130)
+        print("\n" + "═" * 145)
         print(f"  🏆 TOP {top_n} PARAMETER COMBINATIONS (Multi-Position Mode, Ranked by Total PnL)")
-        print("═" * 130)
-        print(f"{'Rank':<5} {'BB Len':<8} {'Mult':<6} {'Sigma':<7} {'Trades':<8} {'TP%':<7} {'Opp%':<7} {'Win%':<7} "
-              f"{'PnL $':<10} {'$/Trade':<9} {'MaxPos':<8} {'Symbols':<8}")
-        print("─" * 130)
+        print("═" * 145)
+        print(f"{'Rank':<5} {'BB Len':<8} {'Mult':<6} {'Sigma':<7} {'Trades':<8} {'TP%':<7} {'Win%':<7} "
+              f"{'PnL $':<10} {'$/Trade':<9} {'PF':<6} {'AvgHold':<8} {'Symbols':<8}")
+        print("─" * 145)
         
         for rank, r in enumerate(results[:top_n], 1):
-            opp_rate = r.opposite_exits / r.total_trades * 100 if r.total_trades > 0 else 0
+            pf_str = f"{r.profit_factor:.2f}" if r.profit_factor != float('inf') else "inf"
             print(f"{rank:<5} {r.bb_length:<8} {r.mult:<6.1f} {r.total_sigma:<7.1f} {r.total_trades:<8} "
-                  f"{r.tp_rate:<7.1f} {opp_rate:<7.1f} {r.win_rate:<7.1f} {r.total_pnl_usd:<10.2f} {r.avg_pnl_per_trade:<9.4f} "
-                  f"{r.max_concurrent_positions:<8} {r.symbols_traded:<8}")
+                  f"{r.tp_rate:<7.1f} {r.win_rate:<7.1f} {r.total_pnl_usd:<10.2f} {r.avg_pnl_per_trade:<9.4f} "
+                  f"{pf_str:<6} {r.avg_hold_bars:<8.1f} {r.symbols_traded:<8}")
         
-        print("═" * 130)
+        print("═" * 145)
         
         # Recommendations
         if results:
             best = results[0]
             print(f"\n📌 BEST PNL: bb_length={best.bb_length}, mult={best.mult} (Sigma: {best.total_sigma:.1f})")
             print(f"   {best.total_trades} trades | {best.win_rate:.1f}% win rate | {best.tp_rate:.1f}% TP | ${best.total_pnl_usd:.2f} PnL")
+            pf_str = f"{best.profit_factor:.2f}" if best.profit_factor != float('inf') else "inf"
+            print(f"   Profit Factor: {pf_str} | Avg Hold: {best.avg_hold_bars:.1f} bars | Best: ${best.best_trade:.4f} | Worst: ${best.worst_trade:.4f}")
             
             # Show highest win rate
             best_wr = max(results, key=lambda r: (r.win_rate, r.total_pnl_usd))
             if best_wr != best:
+                pf_str = f"{best_wr.profit_factor:.2f}" if best_wr.profit_factor != float('inf') else "inf"
                 print(f"\n🎯 BEST WIN RATE: bb_length={best_wr.bb_length}, mult={best_wr.mult}")
-                print(f"   {best_wr.total_trades} trades | {best_wr.win_rate:.1f}% win rate | ${best_wr.total_pnl_usd:.2f} PnL")
+                print(f"   {best_wr.total_trades} trades | {best_wr.win_rate:.1f}% win rate | ${best_wr.total_pnl_usd:.2f} PnL | PF: {pf_str}")
             
-            # Show most trades
-            most_trades = max(results, key=lambda r: r.total_trades)
-            if most_trades != best and most_trades != best_wr:
-                print(f"\n📈 MOST TRADES: bb_length={most_trades.bb_length}, mult={most_trades.mult}")
-                print(f"   {most_trades.total_trades} trades | {most_trades.win_rate:.1f}% win rate | ${most_trades.total_pnl_usd:.2f} PnL")
+            # Show best profit factor (min 50 trades)
+            valid_pf = [r for r in results if r.total_trades >= 50 and r.profit_factor != float('inf')]
+            if valid_pf:
+                best_pf = max(valid_pf, key=lambda r: r.profit_factor)
+                if best_pf != best and best_pf != best_wr:
+                    print(f"\n💎 BEST PROFIT FACTOR (50+ trades): bb_length={best_pf.bb_length}, mult={best_pf.mult}")
+                    print(f"   {best_pf.total_trades} trades | {best_pf.win_rate:.1f}% win rate | ${best_pf.total_pnl_usd:.2f} PnL | PF: {best_pf.profit_factor:.2f}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -789,10 +934,9 @@ def parse_args():
     
     # Data settings
     parser.add_argument("--candles", type=int, default=5000, help="Candles per symbol (default: 5000, paginates)")
-    parser.add_argument("--lookahead", type=int, default=50, help="TP lookahead bars (default: 50)")
     parser.add_argument("--min_trades", type=int, default=5, help="Minimum trades for ranking (default: 5)")
     parser.add_argument("--win_rate", type=float, default=0.0, help="Min win rate %% filter (default: 0, no filter)")
-    parser.add_argument("--max_positions", type=int, default=100, help="Max positions per direction (default: 100)")
+    parser.add_argument("--max_positions", type=int, default=100, help="Max positions TOTAL (default: 100)")
     
     # Output
     parser.add_argument("--top", type=int, default=10, help="Show top N results (default: 10)")
@@ -812,7 +956,6 @@ def main():
         mult_end=args.mult_end,
         mult_step=args.mult_step,
         candles_per_symbol=args.candles,
-        tp_lookahead=args.lookahead,
         min_trades=args.min_trades,
         target_win_rate=args.win_rate,
         max_positions_total=args.max_positions,
