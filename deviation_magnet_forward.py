@@ -43,7 +43,7 @@ except ImportError:
     def json_dumps(obj, indent=None): return _json.dumps(obj, indent=indent)
 
 # Version tracking
-__version__ = "2.1.0"  # Optimized params: bb_length=5, mult=6.0
+__version__ = "2.2.0"  # Added compounding with 1% position sizing
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -65,8 +65,9 @@ class Config:
     # Parallel processing
     max_workers: int = 10
 
-    # Position management - SIMPLIFIED
-    base_order_size: float = field(default_factory=lambda: float(os.environ.get("BASE_ORDER_SIZE", "10.0")))
+    # Capital and Position Sizing (Compounding)
+    initial_capital: float = field(default_factory=lambda: float(os.environ.get("INITIAL_CAPITAL", "1000.0")))
+    position_size_pct: float = 1.0  # 1% of capital per position
     max_positions_total: int = 100  # Max positions TOTAL across all symbols
     
     # Fee structure
@@ -375,6 +376,24 @@ class TradingState:
         self._lock = RLock()
         self.logger = logging.getLogger("deviation_magnet")
         self.save_lock = Lock()
+        
+        # Capital tracking for compounding
+        self.initial_capital: float = config.initial_capital
+        self.current_capital: float = config.initial_capital
+        self.realized_pnl: float = 0.0
+        self.peak_capital: float = config.initial_capital
+    
+    def get_position_size(self) -> float:
+        """Calculate position size as 1% of current capital."""
+        return self.current_capital * (self.config.position_size_pct / 100.0)
+    
+    def update_capital(self, pnl_usd: float) -> None:
+        """Update capital after a trade closes."""
+        with self._lock:
+            self.realized_pnl += pnl_usd
+            self.current_capital += pnl_usd
+            if self.current_capital > self.peak_capital:
+                self.peak_capital = self.current_capital
 
     def increment_errors(self) -> None:
         with self._lock:
@@ -392,6 +411,10 @@ class TradingState:
                     "start_time": self.start_time.isoformat(),
                     "total_signals": self.total_signals,
                     "api_errors": self.api_errors,
+                    "initial_capital": self.initial_capital,
+                    "current_capital": self.current_capital,
+                    "realized_pnl": self.realized_pnl,
+                    "peak_capital": self.peak_capital,
                 }
 
                 temp_file = self.config.state_file.with_suffix(".tmp")
@@ -420,6 +443,12 @@ class TradingState:
             self.total_signals = state_data.get("total_signals", 0)
             self.api_errors = state_data.get("api_errors", 0)
             
+            # Restore capital state
+            self.initial_capital = state_data.get("initial_capital", self.config.initial_capital)
+            self.current_capital = state_data.get("current_capital", self.config.initial_capital)
+            self.realized_pnl = state_data.get("realized_pnl", 0.0)
+            self.peak_capital = state_data.get("peak_capital", self.current_capital)
+            
             if "positions" in state_data:
                 self.position_manager.from_dict(state_data["positions"])
 
@@ -427,7 +456,7 @@ class TradingState:
                 len(positions) 
                 for positions in self.position_manager.positions.values()
             )
-            self.logger.info(f"Restored {total_positions} open positions")
+            self.logger.info(f"Restored {total_positions} open positions, Capital: ${self.current_capital:.2f}")
         except Exception as e:
             self.logger.error(f"Failed to load state: {e}")
 
@@ -724,15 +753,18 @@ class TradeExecutor:
         self.logger = logging.getLogger("deviation_magnet")
 
     def execute_entry(self, symbol: str, direction: str, price: float, bar_time: datetime) -> None:
-        """Open a new position."""
+        """Open a new position with 1% of current capital."""
         now = datetime.now(timezone.utc)
         bar_str = bar_time.isoformat()
+        
+        # Calculate position size as 1% of current capital
+        position_size = self.state.get_position_size()
 
         pos = SinglePosition(
             symbol=symbol,
             direction=direction,
             entry_price=price,
-            size=self.config.base_order_size,
+            size=position_size,
             entry_time=now,
             bar_time=bar_str,
         )
@@ -740,7 +772,8 @@ class TradeExecutor:
         self.state.position_manager.add_position(pos)
         
         count = self.state.position_manager.get_position_count(symbol)
-        self.logger.info(f"📥 ENTRY #{count}: {symbol} {direction.upper()} @ ${price:.4f} (${self.config.base_order_size:.0f})")
+        capital = self.state.current_capital
+        self.logger.info(f"📥 ENTRY #{count}: {symbol} {direction.upper()} @ ${price:.4f} (${position_size:.2f} = 1% of ${capital:.2f})")
         self.state.save()
 
     def execute_tp_exit(self, symbol: str, pos: SinglePosition, price: float) -> None:
@@ -805,13 +838,17 @@ class TradeExecutor:
         
         self.state.add_trade(trade)
         
+        # Update capital for compounding
+        self.state.update_capital(pnl_usd)
+        
         # Remove from position manager
         self.state.position_manager.remove_position(symbol, pos)
         
         emoji = "✅" if pnl_usd > 0 else "❌"
+        capital = self.state.current_capital
         self.logger.info(
             f"{emoji} EXIT: {symbol} {direction.upper()} @ ${price:.4f} | "
-            f"PnL: ${pnl_usd:.2f} | {pnl_pct:.2f}% | {reason}"
+            f"PnL: ${pnl_usd:.2f} | {pnl_pct:.2f}% | {reason} | Capital: ${capital:.2f}"
         )
 
     def update_position_stats(self, pos: SinglePosition, current_price: float, data: BandData) -> None:
@@ -1182,19 +1219,23 @@ class Bot:
 
     def _print_header(self):
         c = self.config
+        s = self.state
+        initial_size = s.initial_capital * (c.position_size_pct / 100.0)
         print(f"\n{'═' * 70}")
-        print(f"  🚀 DEVIATION MAGNET v{__version__} - MULTI-POSITION MODE")
+        print(f"  🚀 DEVIATION MAGNET v{__version__} - COMPOUNDING MODE")
         print(f"{'═' * 70}")
         print(f"  Timeframe:      {c.timeframe}m")
         print(f"  Symbols:        {len(self.symbols)}")
         print(f"  BB Settings:    Length={c.bb_length}, Mult={c.mult} (Sigma={c.mult * c.dev_mult:.2f})")
-        print(f"  Position Size:  ${c.base_order_size}")
-        print(f"  Max Positions:  {c.max_positions_total} TOTAL across all symbols")
+        print(f"{'─' * 70}")
+        print(f"  💰 Capital:     ${s.current_capital:.2f} (Initial: ${s.initial_capital:.2f})")
+        print(f"  📊 Position:    {c.position_size_pct}% of capital = ${initial_size:.2f} initial")
+        print(f"  🔒 Max Positions: {c.max_positions_total} TOTAL across all symbols")
         print(f"{'─' * 70}")
         print(f"  Logic:")
+        print(f"    - Position size = 1% of current capital (compounds)")
         print(f"    - Same direction signal = Add position (if under {c.max_positions_total} total)")
         print(f"    - Opposite signal = Close ALL + Open new (stop loss)")
-        print(f"    - Volatility TP still active per position")
         print(f"{'═' * 70}\n", flush=True)
 
     def _print_status(self):
@@ -1298,6 +1339,21 @@ class Bot:
         else:
             print(f"  No trades yet")
         
+        # Capital Summary
+        s = self.state
+        drawdown = (s.peak_capital - s.current_capital) / s.peak_capital * 100 if s.peak_capital > 0 else 0
+        roi = (s.current_capital - s.initial_capital) / s.initial_capital * 100
+        
+        print(f"\n{sep_double}")
+        print(f"  💰 CAPITAL SUMMARY")
+        print(sep_double)
+        print(f"  Initial Capital:  ${s.initial_capital:,.2f}")
+        print(f"  Current Capital:  ${s.current_capital:,.2f}")
+        print(f"  Peak Capital:     ${s.peak_capital:,.2f}")
+        print(f"  Realized PnL:     ${s.realized_pnl:>+,.2f}")
+        print(f"  ROI:              {roi:>+.2f}%")
+        print(f"  Drawdown:         {drawdown:.2f}%")
+        print(f"  Next Position:    ${s.get_position_size():.2f} (1% of capital)")
         print(f"{sep_double}\n", flush=True)
 
 
