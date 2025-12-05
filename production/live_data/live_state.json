@@ -54,6 +54,64 @@
         "close_order_id": null,
         "is_closing": false,
         "is_entry_filled": true
+      },
+      {
+        "symbol": "CVCUSDT",
+        "direction": "long",
+        "entry_price": 0.05423,
+        "size": 184.0,
+        "entry_time": "2025-12-05T17:22:26.094031+00:00",
+        "entry_order_id": "ef7722a2-758e-4d7c-bf34-4794f3aadee8",
+        "tp_order_id": null,
+        "tp_price": 0.05454,
+        "close_order_id": null,
+        "is_closing": false,
+        "is_entry_filled": false
+      }
+    ],
+    "PENGUUSDT": [
+      {
+        "symbol": "PENGUUSDT",
+        "direction": "short",
+        "entry_price": 0.010681,
+        "size": 930.0,
+        "entry_time": "2025-12-05T17:20:02.014604+00:00",
+        "entry_order_id": "8ea30d8a-1421-4e11-8d40-846f611bdbb6",
+        "tp_order_id": null,
+        "tp_price": 0.010638,
+        "close_order_id": "1aec4f58-a958-455c-b015-801c1944128a",
+        "is_closing": false,
+        "is_entry_filled": true
+      }
+    ],
+    "AIAUSDT": [
+      {
+        "symbol": "AIAUSDT",
+        "direction": "short",
+        "entry_price": 0.3269,
+        "size": 31.0,
+        "entry_time": "2025-12-05T17:20:02.925927+00:00",
+        "entry_order_id": "c1ebaa83-818f-4eec-acc6-693855145be5",
+        "tp_order_id": null,
+        "tp_price": 0.3252,
+        "close_order_id": "7c6ffb97-c24a-4d55-a7dc-14ba44a0aeb5",
+        "is_closing": false,
+        "is_entry_filled": true
+      }
+    ],
+    "SIGNUSDT": [
+      {
+        "symbol": "SIGNUSDT",
+        "direction": "short",
+        "entry_price": 0.03734,
+        "size": 260.0,
+        "entry_time": "2025-12-05T17:20:03.466505+00:00",
+        "entry_order_id": "0f97edd5-ddc6-4e08-8253-c972077f8b7e",
+        "tp_order_id": null,
+        "tp_price": 0.0372,
+        "close_order_id": null,
+        "is_closing": false,
+        "is_entry_filled": true
       }
     ]
   }

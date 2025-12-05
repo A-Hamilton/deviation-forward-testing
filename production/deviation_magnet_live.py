@@ -1457,10 +1457,10 @@ class Bot:
                     "is_conditional": True # Flag to indicate this is a conditional order
                 }
             
-            # Associate this stop order with positions (optional, mainly for cleanup)
+            # Associate this stop order with positions and MARK AS CLOSING
             for pos in all_positions:
                 if not pos.is_position_closing():
-                    pos.close_order_id = stop_order_id # We use close_order_id slot for this
+                    pos.start_closing(stop_order_id) # Critical: prevent infinite loop by marking as closing
             
             self.state.save()
 
