@@ -1042,10 +1042,26 @@ class Bot:
                             self.pending_entries.pop(symbol, None)
                         self.state.save()
                 
-                # TP Fill - position closed via take profit
+                # TP Fill - position closed via take profit (Dynamic Exit or Standard TP)
                 elif oid == pos.tp_order_id and status == "Filled":
                     self.logger.info(f"[FILLED] TP: {symbol}")
                     self.state.position_manager.remove_position(symbol, oid)  # Remove specific position
+                    
+                    # Check if this was a predictive exit (Dynamic Exit) - place entry in new direction
+                    with self._pending_entries_lock:
+                        pending_info = self.pending_entries.pop(symbol, None)
+                    
+                    if pending_info and pending_info.get("is_exit") and pending_info.get("direction"):
+                        # Queue the reversal entry to be placed
+                        new_dir = pending_info["direction"]
+                        limit_price = pending_info["limit_price"]
+                        bar_time = pending_info["bar_time"]
+                        self.logger.info(f"[REVERSAL] {symbol} TP filled, placing {new_dir} entry @ {limit_price}")
+                        try:
+                            self._reversal_entry_queue.put_nowait((symbol, new_dir, limit_price, bar_time))
+                        except queue.Full:
+                            self.logger.error(f"[REVERSAL] {symbol} entry queue full")
+                            
                     self.state.save()
                 
                 # Close Order Fill - position closed via signal/manual close
@@ -1363,80 +1379,77 @@ class Bot:
                 self._place_predictive_order(symbol, predicted_direction, entry_price, data)
 
     def _place_predictive_exit_and_entry(self, symbol: str, new_direction: str, limit_price: float, data: BandData) -> None:
-        """Close existing positions and place entry in new direction - all with one limit order.
+        """Trigger predictive exit by amending existing TP to the band price (dynamic exit).
         
-        Since we're reversing, the limit order will:
-        1. Close existing position (reduceOnly portion)
-        2. Open new position in opposite direction
+        Instead of placing a new 'ReduceOnly' order (which conflicts with existing TP),
+        we simply move the TP price to the current band price.
         
-        But Bybit doesn't support this in one order, so we:
-        1. Cancel all TP orders
-        2. Place close order (reduceOnly) at band price
-        3. Place new entry order at same band price
+        If TP fills, _on_order_update will trigger the reversal entry.
         """
         pm = self.state.position_manager
         all_positions = pm.get_all_positions(symbol)
         if not all_positions:
             return
         
+        # We assume all positions for a symbol share the same direction
         old_direction = all_positions[0].direction
         qty_dec, price_dec, min_qty = self.executor._get_qty_precision(symbol)
         limit_price = round(limit_price, price_dec)
         
-        # Calculate total size to close
-        total_close_size = 0.0
-        for pos in all_positions:
-            if pos.has_entry_filled() and not pos.is_position_closing():
-                _, size, _ = pos.get_entry_info()
-                total_close_size += size
-                # Cancel TP orders
-                if pos.tp_order_id:
-                    self.client.cancel_order(symbol, pos.tp_order_id)
+        # Identify the tracked TP order ID from the latest position
+        # (In DCA, earlier positions might have old TPs, but typically we manage the aggregate TP)
+        # Using the latest position's TP ID is the most reliable for the 'partial' mode aggregate
+        target_tp_id = None
+        for pos in reversed(all_positions):
+            if pos.tp_order_id:
+                target_tp_id = pos.tp_order_id
+                break
         
-        if total_close_size <= 0:
-            return
+        success = False
         
-        total_close_size = round(total_close_size, qty_dec)
-        close_side = "Sell" if old_direction == "long" else "Buy"
-        
-        # 1. Place CLOSE order (reduceOnly) at band price
-        self.logger.info(f"[PREDICT EXIT] {symbol} {close_side} {total_close_size} @ {limit_price} (closing {old_direction})")
-        
-        close_order_id = None
-        try:
-            close_order_id = self.client.place_limit_order(
-                symbol, close_side, total_close_size, limit_price,
-                reduce_only=True, qty_decimals=qty_dec, price_decimals=price_dec
-            )
-        except BybitError as e:
-            if e.ret_code == 110017: # ReduceOnly failed pos=0
-                self.logger.warning(f"[SYNC] {symbol} position mismatch (reduceOnly failed). Forcing removal and placing entry.")
-                # Force remove all positions for this symbol
-                self.state.position_manager.remove_position(symbol)
-                self.state.save()
-                
-                # Proceed to place the predictive entry directly since position is gone
-                self._place_predictive_order(symbol, new_direction, limit_price, data)
-                return
+        if target_tp_id:
+            self.logger.info(f"[PREDICT EXIT] {symbol} Amending TP {target_tp_id} to {limit_price} (Dynamic Exit)")
+            if self.client.amend_order(symbol, target_tp_id, limit_price, price_dec):
+                success = True
+                # Update local state for TP price
+                for pos in all_positions:
+                    if pos.tp_order_id == target_tp_id:
+                        pos.update_tp(target_tp_id, limit_price)
             else:
-                self.logger.error(f"[ORDER ERROR] {symbol} close failed: {e.message}")
+                self.logger.warning(f"[EXIT FAILED] {symbol} TP amendment failed. Will retry or rely on original TP.")
         
-        if close_order_id:
-            # Mark all positions as closing
-            for pos in all_positions:
-                if not pos.is_position_closing():
-                    pos.start_closing(close_order_id)
-            
-            # Track this as a pending exit+entry
+        else:
+            # Fallback: If no TP exists (e.g. manually cancelled), we MUST place a limit close order
+            # This is safe because there is no TP to conflict with.
+            total_close_size = sum(p.size for p in all_positions if p.has_entry_filled())
+            if total_close_size > 0:
+                close_side = "Sell" if old_direction == "long" else "Buy"
+                self.logger.info(f"[PREDICT EXIT] {symbol} No TP found. Placing Limit Close {total_close_size} @ {limit_price}")
+                try:
+                    target_tp_id = self.client.place_limit_order(
+                        symbol, close_side, total_close_size, limit_price,
+                        reduce_only=True, qty_decimals=qty_dec, price_decimals=price_dec
+                    )
+                    if target_tp_id:
+                        success = True
+                        # Mark positions as closing with this ID so we track it
+                        for pos in all_positions:
+                            pos.close_order_id = target_tp_id
+                except BybitError as e:
+                     self.logger.error(f"[ORDER ERROR] {symbol} fallback close failed: {e.message}")
+
+        if success and target_tp_id:
+            # Track this as a pending exit so we can update it dynamically
             with self._pending_entries_lock:
                 self.pending_entries[symbol] = {
                     "bar_time": data.bar_time,
                     "direction": new_direction,
-                    "order_id": close_order_id,
+                    "order_id": target_tp_id, # Can be TP ID or Close Order ID
                     "limit_price": limit_price,
-                    "last_amend_time": 0.0,
+                    "last_amend_time": time.time(), # Set now as last amend since we just did it
                     "is_exit": True,
-                    "old_direction": old_direction
+                    "old_direction": old_direction,
+                    "price_dec": price_dec # Cache precision
                 }
             self.state.save()
 
