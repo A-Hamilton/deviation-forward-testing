@@ -493,9 +493,14 @@ class BybitClient:
             self.logger.error(f"Place limit exception: {_safe_error(e)}")
         return None
 
-    def amend_order(self, symbol: str, order_id: str, price: float, price_decimals: int = 8) -> bool:
+    def amend_order(self, symbol: str, order_id: str, price: float, price_decimals: int = 8, 
+                    take_profit: Optional[float] = None) -> bool:
         try:
-            return self.session.amend_order(category="linear", symbol=symbol, orderId=order_id, price=f"{price:.{price_decimals}f}")["retCode"] == 0
+            params = {"category": "linear", "symbol": symbol, "orderId": order_id, "price": f"{price:.{price_decimals}f}"}
+            if take_profit is not None:
+                tp_str = f"{take_profit:.{price_decimals}f}"
+                params.update({"takeProfit": tp_str, "tpLimitPrice": tp_str})
+            return self.session.amend_order(**params)["retCode"] == 0
         except Exception as e:
             self.logger.error(f"Amend failed: {_safe_error(e)}")
             return False
@@ -1560,12 +1565,18 @@ class Bot:
             if new_limit_price != old_price:
                 now = time.time()
                 if now - last_amend >= self._amend_cooldown_sec:
-                    if self.client.amend_order(symbol, order_id, new_limit_price, price_dec):
+                    # For entry orders, recalculate TP based on new entry price
+                    new_tp = None
+                    if not is_exit:
+                        new_tp = self._strategy.calculate_tp_price(new_limit_price, direction, data.avg_volatility_pct)
+                        new_tp = round(new_tp, price_dec)
+                    
+                    if self.client.amend_order(symbol, order_id, new_limit_price, price_dec, take_profit=new_tp):
                         with self._pending_entries_lock:
                             if symbol in self.pending_entries:
                                 self.pending_entries[symbol]["limit_price"] = new_limit_price
                                 self.pending_entries[symbol]["last_amend_time"] = now
-                        self.logger.debug(f"[UPDATE PREDICT] {symbol} @ {new_limit_price} (was {old_price})")
+                        self.logger.debug(f"[UPDATE PREDICT] {symbol} @ {new_limit_price} TP:{new_tp} (was {old_price})")
                     else:
                         self.logger.warning(f"[AMEND FAILED] {symbol} - will retry or clean up")
 
