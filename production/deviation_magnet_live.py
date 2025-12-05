@@ -826,7 +826,7 @@ class Bot:
         self.logger.info(">>> STARTING LIVE BOT")
         self.logger.info(f"Config: bb={self.config.bb_length}, mult={self.config.mult}, vol_filter={self.config.min_volatility_pct}%")
         self.logger.info(f"Limits: {self.config.max_unique_symbols} symbols × DCA = {self.config.max_positions_global} max positions")
-        self.logger.info(f"Risk: 1x Lev, ${self.config.position_size_usd} per position")
+        self.logger.info(f"Risk: {self.config.leverage}x Lev, ${self.config.position_size_usd} per position")
         
         self._reconcile_state()
         
