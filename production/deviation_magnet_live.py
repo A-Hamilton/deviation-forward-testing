@@ -382,6 +382,13 @@ class TradingState:
 # BYBIT CLIENT
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class BybitError(Exception):
+    def __init__(self, ret_code: int, message: str):
+        self.ret_code = ret_code
+        self.message = message
+        super().__init__(f"Bybit Error {ret_code}: {message}")
+
+
 class BybitClient:
     """Authenticated Bybit Client."""
     
@@ -486,9 +493,17 @@ class BybitClient:
                     "tpLimitPrice": tp_str
                 })
             resp = self.session.place_order(**order_params)
-            if resp["retCode"] == 0:
+            ret = resp["retCode"]
+            if ret == 0:
                 return resp["result"]["orderId"]
+            
+            # Raise exception for specific errors that need handling
+            if ret == 110017: # ReduceOnly failed because position is zero
+                raise BybitError(ret, resp.get("retMsg", "ReduceOnly position zero"))
+                
             self.logger.error(f"Limit order failed: {resp}")
+        except BybitError:
+            raise # Propagate up
         except Exception as e:
             self.logger.error(f"Place limit exception: {_safe_error(e)}")
         return None
@@ -507,7 +522,13 @@ class BybitClient:
 
     def cancel_order(self, symbol: str, order_id: str) -> bool:
         try:
-            return self.session.cancel_order(category="linear", symbol=symbol, orderId=order_id)["retCode"] == 0
+            resp = self.session.cancel_order(category="linear", symbol=symbol, orderId=order_id)
+            if resp["retCode"] == 0:
+                return True
+            # Suppress "Order does not exist" or "Too late to cancel" (110001) as likely already filled/cancelled
+            if resp["retCode"] != 110001:
+                self.logger.error(f"Cancel failed: {resp}")
+            return False
         except Exception as e:
             self.logger.error(f"Cancel failed: {_safe_error(e)}")
             return False
@@ -1363,10 +1384,25 @@ class Bot:
         
         # 1. Place CLOSE order (reduceOnly) at band price
         self.logger.info(f"[PREDICT EXIT] {symbol} {close_side} {total_close_size} @ {limit_price} (closing {old_direction})")
-        close_order_id = self.client.place_limit_order(
-            symbol, close_side, total_close_size, limit_price,
-            reduce_only=True, qty_decimals=qty_dec, price_decimals=price_dec
-        )
+        
+        close_order_id = None
+        try:
+            close_order_id = self.client.place_limit_order(
+                symbol, close_side, total_close_size, limit_price,
+                reduce_only=True, qty_decimals=qty_dec, price_decimals=price_dec
+            )
+        except BybitError as e:
+            if e.ret_code == 110017: # ReduceOnly failed pos=0
+                self.logger.warning(f"[SYNC] {symbol} position mismatch (reduceOnly failed). Forcing removal and placing entry.")
+                # Force remove all positions for this symbol
+                self.state.position_manager.remove_position(symbol)
+                self.state.save()
+                
+                # Proceed to place the predictive entry directly since position is gone
+                self._place_predictive_order(symbol, new_direction, limit_price, data)
+                return
+            else:
+                self.logger.error(f"[ORDER ERROR] {symbol} close failed: {e.message}")
         
         if close_order_id:
             # Mark all positions as closing
