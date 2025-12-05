@@ -466,11 +466,26 @@ class BybitClient:
         except Exception:
             pass
 
-    def place_limit_order(self, symbol: str, side: str, qty: float, price: float, reduce_only: bool = False, qty_decimals: int = 0, price_decimals: int = 2, time_in_force: str = "PostOnly") -> Optional[str]:
+    def place_limit_order(self, symbol: str, side: str, qty: float, price: float, reduce_only: bool = False, 
+                          qty_decimals: int = 0, price_decimals: int = 2, time_in_force: str = "PostOnly",
+                          take_profit: Optional[float] = None) -> Optional[str]:
         try:
             qty_str = str(int(qty)) if qty_decimals == 0 else f"{qty:.{qty_decimals}f}"
-            resp = self.session.place_order(category="linear", symbol=symbol, side=side.capitalize(), orderType="Limit",
-                                            qty=qty_str, price=f"{price:.{price_decimals}f}", timeInForce=time_in_force, reduceOnly=reduce_only)
+            order_params = {
+                "category": "linear", "symbol": symbol, "side": side.capitalize(), "orderType": "Limit",
+                "qty": qty_str, "price": f"{price:.{price_decimals}f}", "timeInForce": time_in_force, "reduceOnly": reduce_only
+            }
+            # Add built-in TP if specified (Bybit handles partial fills automatically)
+            if take_profit is not None:
+                tp_str = f"{take_profit:.{price_decimals}f}"
+                order_params.update({
+                    "takeProfit": tp_str,
+                    "tpTriggerBy": "LastPrice",
+                    "tpslMode": "Partial",       # Auto-adjusts qty on partial fills
+                    "tpOrderType": "Limit",
+                    "tpLimitPrice": tp_str
+                })
+            resp = self.session.place_order(**order_params)
             if resp["retCode"] == 0:
                 return resp["result"]["orderId"]
             self.logger.error(f"Limit order failed: {resp}")
@@ -804,7 +819,6 @@ class Bot:
         self.pending_entries: Dict[str, dict] = {}  # symbol -> {bar_time, direction, order_id, limit_price, last_amend_time, is_exit}
         self._pending_entries_lock = Lock()  # Thread safety for pending_entries
         self.current_prices: Dict[str, float] = {}  # symbol -> real-time price from current bar
-        self._tp_placement_queue: queue.Queue = queue.Queue()  # Queue TP placements to avoid deadlock
         self._reversal_entry_queue: queue.Queue = queue.Queue()  # Queue reversal entries after exit fill
         self._amend_cooldown_sec: float = 2.0  # Minimum seconds between order amendments
         self._last_ws_heartbeat: float = time.time()
@@ -961,40 +975,18 @@ class Bot:
                 if not pos:
                     continue
                 
-                # Entry Fill or Partial Fill
+                # Entry Fill or Partial Fill - Bybit manages TP automatically with tpslMode=Partial
                 if oid == pos.entry_order_id and status in ["Filled", "PartiallyFilled"]:
-                    # Update size from cumulative executed quantity
                     filled_qty = float(order.get("cumExecQty", 0))
                     avg_price = float(order.get("avgPrice", 0))
                     
                     if filled_qty > 0 and avg_price > 0:
-                        # Thread-safe update
                         pos.update_fill(avg_price, filled_qty)
                         self.logger.info(f"[{'FILLED' if status == 'Filled' else 'PARTIAL'}] ENTRY: {symbol} @ {avg_price} (size: {filled_qty})")
                         
                         # Clear pending entry tracking since we got a fill
                         with self._pending_entries_lock:
                             self.pending_entries.pop(symbol, None)
-                        
-                        # Queue TP placement (avoid deadlock by not calling directly from WS callback)
-                        if status == "Filled" and not pos.tp_order_id:
-                            try:
-                                self._tp_placement_queue.put_nowait(symbol)
-                            except queue.Full:
-                                self.logger.warning(f"[TP QUEUE] {symbol} - queue full")
-                        elif status == "PartiallyFilled" and pos.tp_order_id:
-                            # Cancel and replace TP with updated qty - use flag to prevent race
-                            self.logger.info(f"[PARTIAL] {symbol} - Updating TP qty to {filled_qty}")
-                            old_tp_id = pos.tp_order_id
-                            pos.update_tp("_pending_cancel_", None)  # Mark as pending cancel
-                            if self.client.cancel_order(symbol, old_tp_id):
-                                pos.update_tp("", None)  # Clear after successful cancel
-                                try:
-                                    self._tp_placement_queue.put_nowait(symbol)
-                                except queue.Full:
-                                    pass
-                            else:
-                                pos.update_tp(old_tp_id, None)  # Restore on cancel failure
                     
                     self.state.save()
                 
@@ -1423,11 +1415,15 @@ class Bot:
         side = "Buy" if direction == "long" else "Sell"
         limit_price = round(limit_price, price_dec)
         
-        self.logger.info(f"[PREDICT] {symbol} {side} {qty} @ {limit_price} (price approaching band)")
+        # Calculate TP at entry time (based on limit price)
+        tp_price = self._strategy.calculate_tp_price(limit_price, direction, data.avg_volatility_pct)
+        tp_price = round(tp_price, price_dec)
+        
+        self.logger.info(f"[PREDICT] {symbol} {side} {qty} @ {limit_price} TP:{tp_price} (price approaching band)")
         
         order_id = self.client.place_limit_order(symbol, side, qty, limit_price,
                                                   reduce_only=False, qty_decimals=qty_dec,
-                                                  price_decimals=price_dec)
+                                                  price_decimals=price_dec, take_profit=tp_price)
         if order_id:
             pos = SinglePosition(
                 symbol=symbol,
@@ -1435,7 +1431,8 @@ class Bot:
                 entry_price=limit_price,
                 size=qty,
                 entry_time=datetime.now(timezone.utc),
-                entry_order_id=order_id
+                entry_order_id=order_id,
+                tp_price=tp_price  # Track TP price (Bybit manages the actual order)
             )
             self.state.position_manager.add_position(pos)
             with self._pending_entries_lock:
