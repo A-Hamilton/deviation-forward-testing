@@ -513,13 +513,19 @@ class BybitClient:
             self.logger.error(f"Place limit exception: {_safe_error(e)}")
         return None
 
-    def amend_order(self, symbol: str, order_id: str, price: float, price_decimals: int = 8, 
-                    take_profit: Optional[float] = None) -> bool:
+    def amend_order(self, symbol: str, order_id: str, price: Optional[float] = None, price_decimals: int = 8, 
+                    take_profit: Optional[float] = None, trigger_price: Optional[float] = None) -> bool:
         try:
-            params = {"category": "linear", "symbol": symbol, "orderId": order_id, "price": f"{price:.{price_decimals}f}"}
+            params = {"category": "linear", "symbol": symbol, "orderId": order_id}
+            if price is not None:
+                params["price"] = f"{price:.{price_decimals}f}"
+            if trigger_price is not None:
+                params["triggerPrice"] = f"{trigger_price:.{price_decimals}f}"
+                
             if take_profit is not None:
                 tp_str = f"{take_profit:.{price_decimals}f}"
                 params.update({"takeProfit": tp_str, "tpLimitPrice": tp_str})
+                
             return self.session.amend_order(**params)["retCode"] == 0
         except Exception as e:
             self.logger.error(f"Amend failed: {_safe_error(e)}")
@@ -1374,88 +1380,6 @@ class Bot:
         elif current_direction is None:
             # New position on new symbol - mark signal as seen
             bar_key = f"{symbol}_{int(data.bar_time.timestamp())}"
-            if bar_key not in self.state.signals_seen:
-                self.state.signals_seen.add(bar_key)
-                self._place_predictive_order(symbol, predicted_direction, entry_price, data)
-
-    def _place_predictive_exit_and_entry(self, symbol: str, new_direction: str, limit_price: float, data: BandData) -> None:
-        """Trigger predictive exit by amending existing TP to the band price (dynamic exit).
-        
-        Instead of placing a new 'ReduceOnly' order (which conflicts with existing TP),
-        we simply move the TP price to the current band price.
-        
-        If TP fills, _on_order_update will trigger the reversal entry.
-        """
-        pm = self.state.position_manager
-        all_positions = pm.get_all_positions(symbol)
-        if not all_positions:
-            return
-        
-        # We assume all positions for a symbol share the same direction
-        old_direction = all_positions[0].direction
-        qty_dec, price_dec, min_qty = self.executor._get_qty_precision(symbol)
-        limit_price = round(limit_price, price_dec)
-        
-        # Identify the tracked TP order ID from the latest position
-        # (In DCA, earlier positions might have old TPs, but typically we manage the aggregate TP)
-        # Using the latest position's TP ID is the most reliable for the 'partial' mode aggregate
-        target_tp_id = None
-        for pos in reversed(all_positions):
-            if pos.tp_order_id:
-                target_tp_id = pos.tp_order_id
-                break
-        
-        success = False
-        
-        if target_tp_id:
-            self.logger.info(f"[PREDICT EXIT] {symbol} Amending TP {target_tp_id} to {limit_price} (Dynamic Exit)")
-            if self.client.amend_order(symbol, target_tp_id, limit_price, price_dec):
-                success = True
-                # Update local state for TP price
-                for pos in all_positions:
-                    if pos.tp_order_id == target_tp_id:
-                        pos.update_tp(target_tp_id, limit_price)
-            else:
-                self.logger.warning(f"[EXIT FAILED] {symbol} TP amendment failed. Will retry or rely on original TP.")
-        
-        else:
-            # Fallback: If no TP exists (e.g. manually cancelled), we MUST place a limit close order
-            # This is safe because there is no TP to conflict with.
-            total_close_size = sum(p.size for p in all_positions if p.has_entry_filled())
-            if total_close_size > 0:
-                close_side = "Sell" if old_direction == "long" else "Buy"
-                self.logger.info(f"[PREDICT EXIT] {symbol} No TP found. Placing Limit Close {total_close_size} @ {limit_price}")
-                try:
-                    target_tp_id = self.client.place_limit_order(
-                        symbol, close_side, total_close_size, limit_price,
-                        reduce_only=True, qty_decimals=qty_dec, price_decimals=price_dec
-                    )
-                    if target_tp_id:
-                        success = True
-                        # Mark positions as closing with this ID so we track it
-                        for pos in all_positions:
-                            pos.close_order_id = target_tp_id
-                except BybitError as e:
-                     self.logger.error(f"[ORDER ERROR] {symbol} fallback close failed: {e.message}")
-
-        if success and target_tp_id:
-            # Track this as a pending exit so we can update it dynamically
-            with self._pending_entries_lock:
-                self.pending_entries[symbol] = {
-                    "bar_time": data.bar_time,
-                    "direction": new_direction,
-                    "order_id": target_tp_id, # Can be TP ID or Close Order ID
-                    "limit_price": limit_price,
-                    "last_amend_time": time.time(), # Set now as last amend since we just did it
-                    "is_exit": True,
-                    "old_direction": old_direction,
-                    "price_dec": price_dec # Cache precision
-                }
-            self.state.save()
-
-    def _place_predictive_order(self, symbol: str, direction: str, limit_price: float, data: BandData) -> None:
-        """Place a predictive limit order at the band."""
-        qty_dec, price_dec, min_qty = self.executor._get_qty_precision(symbol)
         raw_qty = self.config.position_size_usd / limit_price
         qty = round(raw_qty, qty_dec)
         
@@ -1645,7 +1569,7 @@ class Bot:
                     self.logger.warning(f"[CANCEL FAILED] {symbol} cancel failed and status unknown ({status}). waiting.")
             return
         
-        # Update limit price to track current band (with rate limiting)
+        # Update limit/trigger price to track current band (with rate limiting)
         if new_limit_price:
             new_limit_price = round(new_limit_price, price_dec)
             
@@ -1653,18 +1577,33 @@ class Bot:
             if new_limit_price != old_price:
                 now = time.time()
                 if now - last_amend >= self._amend_cooldown_sec:
-                    # For entry orders, recalculate TP based on new entry price
-                    new_tp = None
-                    if not is_exit:
-                        new_tp = self._strategy.calculate_tp_price(new_limit_price, direction, data.avg_volatility_pct)
-                        new_tp = round(new_tp, price_dec)
+                    is_conditional = pending_info.get("is_conditional", False)
+                    success = False
                     
-                    if self.client.amend_order(symbol, order_id, new_limit_price, price_dec, take_profit=new_tp):
+                    if is_conditional:
+                        # Amend TRIGGER PRICE for Conditional Order
+                        self.logger.debug(f"[UPDATE PREDICT] {symbol} (Conditional) Trigger {new_limit_price} (was {old_price})")
+                        # triggerPrice expects string in some SDKs/endpoints but Pybit handles mixed types often. 
+                        # We pass it as typical arg.
+                        if self.client.amend_order(symbol, order_id, None, price_dec, trigger_price=new_limit_price):
+                            success = True
+                    else:
+                        # Standard Limit Order Logic
+                        # For entry orders, recalculate TP based on new entry price
+                        new_tp = None
+                        if not is_exit:
+                            new_tp = self._strategy.calculate_tp_price(new_limit_price, direction, data.avg_volatility_pct)
+                            new_tp = round(new_tp, price_dec)
+                        
+                        if self.client.amend_order(symbol, order_id, new_limit_price, price_dec, take_profit=new_tp):
+                             self.logger.debug(f"[UPDATE PREDICT] {symbol} @ {new_limit_price} TP:{new_tp} (was {old_price})")
+                             success = True
+
+                    if success:
                         with self._pending_entries_lock:
                             if symbol in self.pending_entries:
                                 self.pending_entries[symbol]["limit_price"] = new_limit_price
                                 self.pending_entries[symbol]["last_amend_time"] = now
-                        self.logger.debug(f"[UPDATE PREDICT] {symbol} @ {new_limit_price} TP:{new_tp} (was {old_price})")
                     else:
                         self.logger.warning(f"[AMEND FAILED] {symbol} - will retry or clean up")
 
