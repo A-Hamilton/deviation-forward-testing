@@ -1,0 +1,23 @@
+{
+  "positions": {
+    "LABUSDT": {
+      "symbol": "LABUSDT",
+      "direction": "short",
+      "entry_price": 0.09046,
+      "size": 111.0,
+      "entry_time": "2025-12-03T21:00:15.766521+00:00",
+      "entry_order_id": "8ab92fb3-5016-405b-ae3a-81cd08ae1198",
+      "tp_order_id": "0924b404-45e3-47e6-af36-39925c881dd0",
+      "tp_price": 0.09009,
+      "close_order_id": null,
+      "is_closing": false,
+      "is_entry_filled": true,
+      "max_runup_pct": 0.0,
+      "max_drawdown_pct": 0.0,
+      "bars_held": 0
+    }
+  },
+  "start_time": "2025-12-03T15:34:11.925081+00:00",
+  "total_signals": 0,
+  "api_errors": 0
+}

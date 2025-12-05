@@ -9,6 +9,8 @@ ENV/
 
 # Data files (generated at runtime)
 forward_test_data/
+archive/
+cache_data/
 
 # IDE
 .vscode/
