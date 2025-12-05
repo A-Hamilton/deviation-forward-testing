@@ -547,6 +547,18 @@ class BybitClient:
             pass
         return None
 
+    def fetch_order_status(self, symbol: str, order_id: str) -> Optional[dict]:
+        """Fetch status of a specific order (open or closed/filled)."""
+        try:
+            # openOnly=0 means open orders, but orderId query ignores openOnly? 
+            # API docs say: "openOnly param will be ignored when query by orderId"
+            resp = self.session.get_open_orders(category="linear", symbol=symbol, orderId=order_id)
+            if resp["retCode"] == 0 and resp["result"]["list"]:
+                return resp["result"]["list"][0]
+        except Exception as e:
+            self.logger.error(f"Fetch order status failed: {_safe_error(e)}")
+        return None
+
     def fetch_positions(self) -> List[dict]:
         try:
             resp = self.session.get_positions(category="linear", settleCoin="USDT")
@@ -1566,17 +1578,58 @@ class Bot:
         
         if should_cancel:
             self.logger.info(f"[CANCEL PREDICT] {symbol} {'exit' if is_exit else 'entry'} - price moved away from band")
-            self.client.cancel_order(symbol, order_id)
-            with self._pending_entries_lock:
-                self.pending_entries.pop(symbol, None)
             
-            if is_exit:
-                for pos in self.state.position_manager.get_all_positions(symbol):
-                    if pos.close_order_id == order_id:
-                        with pos._lock:
-                            pos.is_closing = False
-                            pos.close_order_id = None
+            # Try to cancel
+            if self.client.cancel_order(symbol, order_id):
+                # Successfully cancelled (or request accepted)
+                with self._pending_entries_lock:
+                    self.pending_entries.pop(symbol, None)
+                
+                # For exit orders, clear close_order_id on positions
+                if is_exit:
+                    for pos in self.state.position_manager.get_all_positions(symbol):
+                        if pos.close_order_id == order_id:
+                            with pos._lock:
+                                pos.is_closing = False
+                                pos.close_order_id = None
+                                
+                # For entry, if we successfully cancelled, the position is already gone from pending,
+                # but we should remove the 'phantom' position object associated with this order 
+                # IF it hasn't been filled.
+                else: 
+                     self.state.position_manager.remove_if_unfilled(symbol, order_id)
+                     
                 self.state.save()
+            else:
+                # Cancel failed (maybe 110001 or filled). Verify status to be safe.
+                order_status = self.client.fetch_order_status(symbol, order_id)
+                status = order_status.get("orderStatus") if order_status else "Unknown"
+                
+                if status == "Filled":
+                    self.logger.info(f"[CANCEL FAILED] {symbol} order {order_id} actually FILLED. Treating as fill.")
+                    # Keep detailed tracking, WS will handle the rest.
+                    # IMPORTANT: Do NOT remove position.
+                    with self._pending_entries_lock:
+                        self.pending_entries.pop(symbol, None)
+                
+                elif status in ["Cancelled", "Rejected", "New", "PartiallyFilled"]:
+                    self.logger.info(f"[CANCEL FAILED] {symbol} status is {status}. Cleaning up.")
+                    with self._pending_entries_lock:
+                        self.pending_entries.pop(symbol, None)
+                        
+                    if is_exit:
+                        for pos in self.state.position_manager.get_all_positions(symbol):
+                            if pos.close_order_id == order_id:
+                                with pos._lock:
+                                    pos.is_closing = False
+                                    pos.close_order_id = None
+                    else:
+                        if status in ["Cancelled", "Rejected"]:
+                            self.state.position_manager.remove_if_unfilled(symbol, order_id)
+                    
+                    self.state.save()
+                else:
+                    self.logger.warning(f"[CANCEL FAILED] {symbol} cancel failed and status unknown ({status}). waiting.")
             return
         
         # Update limit price to track current band (with rate limiting)
