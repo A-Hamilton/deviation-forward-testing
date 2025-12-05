@@ -232,13 +232,17 @@ class PositionManager:
         with self._lock: return symbol in self.positions and self._total_count < self.config.max_positions_global
     
     def get_position(self, symbol: str) -> Optional[SinglePosition]:
-        with self._lock: return (p := self.positions.get(symbol, []))[-1] if p else None
+        with self._lock:
+            p = self.positions.get(symbol, [])
+            return p[-1] if p else None
     
     def get_all_positions(self, symbol: str) -> List[SinglePosition]:
         with self._lock: return list(self.positions.get(symbol, []))
     
     def get_symbol_direction(self, symbol: str) -> Optional[str]:
-        with self._lock: return (p := self.positions.get(symbol, []))[0].direction if p else None
+        with self._lock:
+            p = self.positions.get(symbol, [])
+            return p[0].direction if p else None
     
     def add_position(self, pos: SinglePosition) -> None:
         with self._lock:
