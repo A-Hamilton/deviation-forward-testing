@@ -1056,8 +1056,8 @@ class Bot:
         cleanup_counter = 0
         while True:
             try:
-                # Process any pending TP placements first (from WS callbacks)
-                self._process_tp_queue()
+                # Process any pending reversal entries (from WS callbacks)
+                self._process_reversal_queue()
                 
                 symbol = self.event_queue.get(timeout=1.0)
                 self._process_symbol(symbol)
@@ -1095,21 +1095,8 @@ class Bot:
         except Exception as e:
             self.logger.error(f"Shutdown error: {_safe_error(e)}")
     
-    def _process_tp_queue(self) -> None:
-        """Process queued TP placements and reversal entries from WS callbacks (avoids deadlock)."""
-        processed = 0
-        
-        # Process TP placements
-        while processed < 10:  # Limit per iteration to avoid blocking
-            try:
-                symbol = self._tp_placement_queue.get_nowait()
-                pos = self.state.position_manager.get_position(symbol)
-                if pos and pos.has_entry_filled() and not pos.tp_order_id:
-                    self._place_tp_after_fill(pos)
-                processed += 1
-            except queue.Empty:
-                break
-        
+    def _process_reversal_queue(self) -> None:
+        """Process reversal entries from WS callbacks (avoids deadlock)."""
         # Process reversal entries (after exit fills)
         reversal_processed = 0
         while reversal_processed < 5:
@@ -1145,8 +1132,8 @@ class Bot:
         """Perform periodic maintenance tasks during idle time."""
         now = time.time()
         
-        # Process any pending TP placements
-        self._process_tp_queue()
+        # Process any pending reversal entries
+        self._process_reversal_queue()
         
         # Check WS health (warn if no data for configured timeout, throttle warnings)
         ws_silence = now - self._last_ws_heartbeat
@@ -1254,14 +1241,8 @@ class Bot:
             if any(p.is_position_closing() for p in all_positions):
                 return
             
-            # Process each position for TP management
-            for pos in all_positions:
-                # Skip if entry not filled yet (waiting for limit fill)
-                if not pos.has_entry_filled():
-                    continue
-                
-                # Ensure TP exists (places TP if missing after fill)
-                self.executor.ensure_tp_exists(pos, data)
+            # TP is now set atomically via Bybit's built-in takeProfit parameter
+            # No need to check/place TP here - Bybit manages it
             
             # Check for predictive entry/exit opportunity
             if has_pending:
