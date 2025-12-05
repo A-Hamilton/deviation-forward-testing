@@ -1380,6 +1380,93 @@ class Bot:
         elif current_direction is None:
             # New position on new symbol - mark signal as seen
             bar_key = f"{symbol}_{int(data.bar_time.timestamp())}"
+            if bar_key not in self.state.signals_seen:
+                self.state.signals_seen.add(bar_key)
+                self._place_predictive_order(symbol, predicted_direction, entry_price, data)
+
+    def _place_predictive_exit_and_entry(self, symbol: str, new_direction: str, limit_price: float, data: BandData) -> None:
+        """Place a CONDITIONAL MARKET ORDER (Stop Loss) to exit at the band price.
+        
+        This serves as a 'Dynamic Stop Loss' that coexists with the static TP.
+        - Trigger Price: The Bollinger Band price.
+        - Order Type: Market (Close On Trigger).
+        - Purpose: Exit if price reverses to the band, independent of the original TP.
+        """
+        pm = self.state.position_manager
+        all_positions = pm.get_all_positions(symbol)
+        if not all_positions:
+            return
+        
+        old_direction = all_positions[0].direction
+        qty_dec, price_dec, min_qty = self.executor._get_qty_precision(symbol)
+        trigger_price = round(limit_price, price_dec)
+        
+        total_close_size = sum(p.size for p in all_positions if p.has_entry_filled() and not p.is_position_closing())
+        if total_close_size <= 0:
+            return
+            
+        total_close_size = round(total_close_size, qty_dec)
+        close_side = "Sell" if old_direction == "long" else "Buy"
+        
+        # Determine trigger direction:
+        # Long Exit (Sell): Trigger when price RISES to band (if band is above price) or FALLS (if SL).
+        # Actually, 'predictive exit' means price is approaching the band.
+        # If Long (entry lower), Upper Band is higher -> Trigger when price rises to band -> triggerDirection=1 (Rise).
+        # If Short (entry higher), Lower Band is lower -> Trigger when price falls to band -> triggerDirection=2 (Fall).
+        trigger_direction = 1 if old_direction == "long" else 2
+        
+        self.logger.info(f"[PREDICT EXIT] {symbol} Placing Conditional Exit {total_close_size} @ {trigger_price} (Dir: {trigger_direction})")
+        
+        stop_order_id = None
+        try:
+             # Use place_order for advanced Conditional Order params
+            resp = self.client.session.place_order(
+                category="linear",
+                symbol=symbol,
+                side=close_side,
+                orderType="Market",
+                qty=str(total_close_size),
+                triggerPrice=str(trigger_price),
+                triggerDirection=trigger_direction,
+                triggerBy="LastPrice",
+                orderFilter="StopOrder", # Explicitly a stop order
+                reduceOnly=True,
+                closeOnTrigger=True,
+                timeInForce="ImmediateOrCancel" # Market order standard
+            )
+            if resp["retCode"] == 0:
+                stop_order_id = resp["result"]["orderId"]
+            else:
+                self.logger.error(f"[ORDER ERROR] {symbol} Conditional Exit failed: {resp}")
+                
+        except Exception as e:
+             self.logger.error(f"[ORDER ERROR] {symbol} Conditional Exit exception: {e}")
+
+        if stop_order_id:
+            # Track this as a pending exit so we can update triggerPrice dynamically
+            with self._pending_entries_lock:
+                self.pending_entries[symbol] = {
+                    "bar_time": data.bar_time,
+                    "direction": new_direction,
+                    "order_id": stop_order_id,
+                    "limit_price": trigger_price, # Stored as limit_price for consistency, but is trigger
+                    "last_amend_time": time.time(),
+                    "is_exit": True,
+                    "old_direction": old_direction,
+                    "price_dec": price_dec,
+                    "is_conditional": True # Flag to indicate this is a conditional order
+                }
+            
+            # Associate this stop order with positions (optional, mainly for cleanup)
+            for pos in all_positions:
+                if not pos.is_position_closing():
+                    pos.close_order_id = stop_order_id # We use close_order_id slot for this
+            
+            self.state.save()
+
+    def _place_predictive_order(self, symbol: str, direction: str, limit_price: float, data: BandData) -> None:
+        """Place a predictive limit order at the band."""
+        qty_dec, price_dec, min_qty = self.executor._get_qty_precision(symbol)
         raw_qty = self.config.position_size_usd / limit_price
         qty = round(raw_qty, qty_dec)
         

@@ -1,23 +1,60 @@
 {
   "positions": {
-    "LABUSDT": {
-      "symbol": "LABUSDT",
-      "direction": "short",
-      "entry_price": 0.09046,
-      "size": 111.0,
-      "entry_time": "2025-12-03T21:00:15.766521+00:00",
-      "entry_order_id": "8ab92fb3-5016-405b-ae3a-81cd08ae1198",
-      "tp_order_id": "0924b404-45e3-47e6-af36-39925c881dd0",
-      "tp_price": 0.09009,
-      "close_order_id": null,
-      "is_closing": false,
-      "is_entry_filled": true,
-      "max_runup_pct": 0.0,
-      "max_drawdown_pct": 0.0,
-      "bars_held": 0
-    }
-  },
-  "start_time": "2025-12-03T15:34:11.925081+00:00",
-  "total_signals": 0,
-  "api_errors": 0
+    "LIGHTUSDT": [
+      {
+        "symbol": "LIGHTUSDT",
+        "direction": "short",
+        "entry_price": 1.0964,
+        "size": 9.0,
+        "entry_time": "2025-12-05T15:43:47.609272+00:00",
+        "entry_order_id": "204ce0f2-6213-48b0-bdbe-e6ffbf76261e",
+        "tp_order_id": "0346f863-33df-4200-a900-ca721427a4bb",
+        "tp_price": 1.0964,
+        "close_order_id": null,
+        "is_closing": false,
+        "is_entry_filled": true
+      },
+      {
+        "symbol": "LIGHTUSDT",
+        "direction": "short",
+        "entry_price": 1.1215,
+        "size": 9.0,
+        "entry_time": "2025-12-05T16:10:03.034242+00:00",
+        "entry_order_id": "37646d95-48bb-4a42-b36f-fcc91179acd2",
+        "tp_order_id": "dd5c8e64-34be-493c-b728-b9aa746579be",
+        "tp_price": 1.1382,
+        "close_order_id": null,
+        "is_closing": false,
+        "is_entry_filled": true
+      }
+    ],
+    "CVCUSDT": [
+      {
+        "symbol": "CVCUSDT",
+        "direction": "long",
+        "entry_price": 0.05712,
+        "size": 175.0,
+        "entry_time": "2025-12-05T16:00:22.038428+00:00",
+        "entry_order_id": "0c9e46cd-7ee5-4d53-9b6e-beec61c2ecd4",
+        "tp_order_id": null,
+        "tp_price": 0.05745,
+        "close_order_id": null,
+        "is_closing": false,
+        "is_entry_filled": true
+      },
+      {
+        "symbol": "CVCUSDT",
+        "direction": "long",
+        "entry_price": 0.05712,
+        "size": 175.0,
+        "entry_time": "2025-12-05T16:00:29.861072+00:00",
+        "entry_order_id": "68f28172-b8c0-4cd6-8bba-8e98d4abe927",
+        "tp_order_id": null,
+        "tp_price": 0.05745,
+        "close_order_id": null,
+        "is_closing": false,
+        "is_entry_filled": true
+      }
+    ]
+  }
 }
