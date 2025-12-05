@@ -505,6 +505,11 @@ class BybitClient:
         except BybitError:
             raise # Propagate up
         except Exception as e:
+            # Check if Pybit raised an exception containing the error code
+            msg = str(e)
+            if "110017" in msg:
+                raise BybitError(110017, msg)
+                
             self.logger.error(f"Place limit exception: {_safe_error(e)}")
         return None
 
