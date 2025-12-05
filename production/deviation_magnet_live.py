@@ -1183,7 +1183,7 @@ class Bot:
                             fresh_limit_price = data.upper3 / self._buffer_mult
                         
                         data.bar_time = bar_time  # Use original bar time
-                        self._place_predictive_order(symbol, direction, fresh_limit_price, data)
+                        self._place_predictive_order(symbol, direction, fresh_limit_price, data, time_in_force="GTC")
                 reversal_processed += 1
             except queue.Empty:
                 break
@@ -1464,7 +1464,7 @@ class Bot:
             
             self.state.save()
 
-    def _place_predictive_order(self, symbol: str, direction: str, limit_price: float, data: BandData) -> None:
+    def _place_predictive_order(self, symbol: str, direction: str, limit_price: float, data: BandData, time_in_force: str = "PostOnly") -> None:
         """Place a predictive limit order at the band."""
         qty_dec, price_dec, min_qty = self.executor._get_qty_precision(symbol)
         raw_qty = self.config.position_size_usd / limit_price
@@ -1482,11 +1482,12 @@ class Bot:
         tp_price = self._strategy.calculate_tp_price(limit_price, direction, data.avg_volatility_pct)
         tp_price = round(tp_price, price_dec)
         
-        self.logger.info(f"[PREDICT] {symbol} {side} {qty} @ {limit_price} TP:{tp_price} (price approaching band)")
+        self.logger.info(f"[PREDICT] {symbol} {side} {qty} @ {limit_price} TP:{tp_price} (approaching{' Taker/GTC' if time_in_force!='PostOnly' else ''})")
         
         order_id = self.client.place_limit_order(symbol, side, qty, limit_price,
                                                   reduce_only=False, qty_decimals=qty_dec,
-                                                  price_decimals=price_dec, take_profit=tp_price)
+                                                  price_decimals=price_dec, take_profit=tp_price,
+                                                  time_in_force=time_in_force)
         if order_id:
             pos = SinglePosition(
                 symbol=symbol,

@@ -1,114 +1,88 @@
 {
   "positions": {
-    "LIGHTUSDT": [
+    "JELLYJELLYUSDT": [
       {
-        "symbol": "LIGHTUSDT",
+        "symbol": "JELLYJELLYUSDT",
+        "direction": "long",
+        "entry_price": 0.03999,
+        "size": 250.0,
+        "entry_time": "2025-12-05T17:58:02.414522+00:00",
+        "entry_order_id": "620d5b8c-30a0-468d-9345-bdb56dbf7aaa",
+        "tp_order_id": null,
+        "tp_price": 0.04015,
+        "close_order_id": null,
+        "is_closing": false,
+        "is_entry_filled": true
+      }
+    ],
+    "NMRUSDT": [
+      {
+        "symbol": "NMRUSDT",
         "direction": "short",
-        "entry_price": 1.0964,
-        "size": 9.0,
-        "entry_time": "2025-12-05T15:43:47.609272+00:00",
-        "entry_order_id": "204ce0f2-6213-48b0-bdbe-e6ffbf76261e",
-        "tp_order_id": "0346f863-33df-4200-a900-ca721427a4bb",
-        "tp_price": 1.0964,
+        "entry_price": 11.116,
+        "size": 0.9,
+        "entry_time": "2025-12-05T17:58:03.508374+00:00",
+        "entry_order_id": "9e1e6a0a-7dc7-4ce4-88cd-ced6266adc8d",
+        "tp_order_id": null,
+        "tp_price": 11.069,
+        "close_order_id": null,
+        "is_closing": false,
+        "is_entry_filled": true
+      }
+    ],
+    "SAROSUSDT": [
+      {
+        "symbol": "SAROSUSDT",
+        "direction": "long",
+        "entry_price": 0.003628,
+        "size": 2756.0,
+        "entry_time": "2025-12-05T17:58:04.934504+00:00",
+        "entry_order_id": "876c0ddb-9178-432e-9f7c-50022bb5a158",
+        "tp_order_id": null,
+        "tp_price": 0.003643,
+        "close_order_id": null,
+        "is_closing": false,
+        "is_entry_filled": true
+      }
+    ],
+    "BOBAUSDT": [
+      {
+        "symbol": "BOBAUSDT",
+        "direction": "short",
+        "entry_price": 0.04988,
+        "size": 200.5,
+        "entry_time": "2025-12-05T18:00:02.430049+00:00",
+        "entry_order_id": "aec555b5-ea28-40fa-8785-40542ce4b8c1",
+        "tp_order_id": null,
+        "tp_price": 0.04967,
         "close_order_id": null,
         "is_closing": false,
         "is_entry_filled": true
       },
       {
-        "symbol": "LIGHTUSDT",
+        "symbol": "BOBAUSDT",
         "direction": "short",
-        "entry_price": 1.1215,
-        "size": 9.0,
-        "entry_time": "2025-12-05T16:10:03.034242+00:00",
-        "entry_order_id": "37646d95-48bb-4a42-b36f-fcc91179acd2",
-        "tp_order_id": "dd5c8e64-34be-493c-b728-b9aa746579be",
-        "tp_price": 1.1382,
+        "entry_price": 0.04995,
+        "size": 200.2,
+        "entry_time": "2025-12-05T18:01:01.991142+00:00",
+        "entry_order_id": "a19f8dc1-8201-4caa-ba71-97fae56375c8",
+        "tp_order_id": null,
+        "tp_price": 0.04972,
         "close_order_id": null,
         "is_closing": false,
         "is_entry_filled": true
       }
     ],
-    "CVCUSDT": [
+    "SSVUSDT": [
       {
-        "symbol": "CVCUSDT",
+        "symbol": "SSVUSDT",
         "direction": "long",
-        "entry_price": 0.05712,
-        "size": 175.0,
-        "entry_time": "2025-12-05T16:00:22.038428+00:00",
-        "entry_order_id": "0c9e46cd-7ee5-4d53-9b6e-beec61c2ecd4",
+        "entry_price": 3.464,
+        "size": 2.89,
+        "entry_time": "2025-12-05T18:01:02.722770+00:00",
+        "entry_order_id": "1643afe1-a509-4b92-adf5-5253885d32f1",
         "tp_order_id": null,
-        "tp_price": 0.05745,
-        "close_order_id": null,
-        "is_closing": false,
-        "is_entry_filled": true
-      },
-      {
-        "symbol": "CVCUSDT",
-        "direction": "long",
-        "entry_price": 0.05712,
-        "size": 175.0,
-        "entry_time": "2025-12-05T16:00:29.861072+00:00",
-        "entry_order_id": "68f28172-b8c0-4cd6-8bba-8e98d4abe927",
-        "tp_order_id": null,
-        "tp_price": 0.05745,
-        "close_order_id": null,
-        "is_closing": false,
-        "is_entry_filled": true
-      },
-      {
-        "symbol": "CVCUSDT",
-        "direction": "long",
-        "entry_price": 0.05423,
-        "size": 184.0,
-        "entry_time": "2025-12-05T17:22:26.094031+00:00",
-        "entry_order_id": "ef7722a2-758e-4d7c-bf34-4794f3aadee8",
-        "tp_order_id": null,
-        "tp_price": 0.05454,
-        "close_order_id": null,
-        "is_closing": false,
-        "is_entry_filled": false
-      }
-    ],
-    "PENGUUSDT": [
-      {
-        "symbol": "PENGUUSDT",
-        "direction": "short",
-        "entry_price": 0.010681,
-        "size": 930.0,
-        "entry_time": "2025-12-05T17:20:02.014604+00:00",
-        "entry_order_id": "8ea30d8a-1421-4e11-8d40-846f611bdbb6",
-        "tp_order_id": null,
-        "tp_price": 0.010638,
-        "close_order_id": "1aec4f58-a958-455c-b015-801c1944128a",
-        "is_closing": false,
-        "is_entry_filled": true
-      }
-    ],
-    "AIAUSDT": [
-      {
-        "symbol": "AIAUSDT",
-        "direction": "short",
-        "entry_price": 0.3269,
-        "size": 31.0,
-        "entry_time": "2025-12-05T17:20:02.925927+00:00",
-        "entry_order_id": "c1ebaa83-818f-4eec-acc6-693855145be5",
-        "tp_order_id": null,
-        "tp_price": 0.3252,
-        "close_order_id": "7c6ffb97-c24a-4d55-a7dc-14ba44a0aeb5",
-        "is_closing": false,
-        "is_entry_filled": true
-      }
-    ],
-    "SIGNUSDT": [
-      {
-        "symbol": "SIGNUSDT",
-        "direction": "short",
-        "entry_price": 0.03734,
-        "size": 260.0,
-        "entry_time": "2025-12-05T17:20:03.466505+00:00",
-        "entry_order_id": "0f97edd5-ddc6-4e08-8253-c972077f8b7e",
-        "tp_order_id": null,
-        "tp_price": 0.0372,
+        "tp_price": 3.477,
         "close_order_id": null,
         "is_closing": false,
         "is_entry_filled": true
